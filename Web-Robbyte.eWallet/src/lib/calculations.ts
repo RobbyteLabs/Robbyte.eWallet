@@ -2,6 +2,7 @@ import type {
   AppData,
   CreditCard,
   Expense,
+  ExpensePriority,
   MonthlyReport,
   PaymentDue,
 } from "../types";
@@ -92,6 +93,7 @@ export const getPaymentDues = (data: AppData): PaymentDue[] => {
 };
 
 export const getMonthlyReport = (data: AppData): MonthlyReport => {
+  const currentMonth = monthKey();
   const fixedExpenses = data.expenses
     .filter((expense) => expense.kind === "fixed")
     .reduce((sum, expense) => sum + expense.amount, 0);
@@ -106,10 +108,12 @@ export const getMonthlyReport = (data: AppData): MonthlyReport => {
     (sum, card) => sum + getMonthlyCardPayment(card),
     0,
   );
-  const recurringIncome = data.incomes
-    .filter((income) => income.recurring)
+  const trackedIncome = data.incomes
+    .filter(
+      (income) => income.recurring || income.date.startsWith(currentMonth),
+    )
     .reduce((sum, income) => sum + income.amount, 0);
-  const income = recurringIncome || data.settings.monthlyIncome;
+  const income = data.settings.monthlyIncome + trackedIncome;
 
   return {
     monthKey: monthKey(),
@@ -134,3 +138,46 @@ export const getUpcomingAlerts = (data: AppData) => {
     return dueDate <= max;
   });
 };
+
+export const groupAmounts = <T>(
+  items: T[],
+  getKey: (item: T) => string | undefined,
+  getAmount: (item: T) => number,
+) =>
+  items
+    .reduce<Array<{ label: string; amount: number }>>((totals, item) => {
+      const label = getKey(item) || "Sin clasificar";
+      const current = totals.find((entry) => entry.label === label);
+      if (current) {
+        current.amount += getAmount(item);
+      } else {
+        totals.push({ label, amount: getAmount(item) });
+      }
+      return totals;
+    }, [])
+    .sort((a, b) => b.amount - a.amount);
+
+export const getExpenseCategoryTotals = (data: AppData) =>
+  groupAmounts(data.expenses, (expense) => expense.category, (expense) => expense.amount);
+
+export const getIncomeCategoryTotals = (data: AppData) =>
+  [
+    ...(data.settings.monthlyIncome > 0
+      ? [{ label: "Ingreso base", amount: data.settings.monthlyIncome }]
+      : []),
+    ...groupAmounts(data.incomes, (income) => income.category, (income) => income.amount),
+  ].sort((a, b) => b.amount - a.amount);
+
+const priorityLabels: Record<ExpensePriority, string> = {
+  essential: "Necesario",
+  lifestyle: "Estilo de vida",
+  savings: "Ahorro/Inversion",
+  debt: "Deuda",
+};
+
+export const getExpensePriorityTotals = (data: AppData) =>
+  groupAmounts(
+    data.expenses,
+    (expense) => priorityLabels[expense.priority || "essential"],
+    (expense) => expense.amount,
+  );

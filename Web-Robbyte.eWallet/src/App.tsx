@@ -1,9 +1,11 @@
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
 import {
   ChangeEvent,
+  createContext,
   FormEvent,
   ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -28,8 +30,19 @@ import {
   Toast,
   ToastContainer,
 } from "react-bootstrap";
-import { defaultAppData, expenseCategories } from "./data/defaults";
 import {
+  defaultAppData,
+  currencyOptions,
+  expenseCategories,
+  expensePriorities,
+  getCurrencyOption,
+  incomeCategories,
+  paymentMethods,
+} from "./data/defaults";
+import {
+  getExpenseCategoryTotals,
+  getExpensePriorityTotals,
+  getIncomeCategoryTotals,
   getMonthlyCardPayment,
   getMonthlyReport,
   getPaymentDues,
@@ -62,6 +75,7 @@ import type {
   CreditCard,
   Expense,
   ExpenseKind,
+  ExpensePriority,
   Frequency,
   Income,
   Loan,
@@ -112,6 +126,19 @@ const readFirstSalt = (blocks: EncryptedAppBlocks) => {
 const toNumber = (value: FormDataEntryValue | null) => Number(value || 0);
 const toStringValue = (value: FormDataEntryValue | null) => String(value || "");
 
+const MoneyFormatContext = createContext({
+  currency: "PEN",
+  locale: "es-PE",
+});
+
+const useMoney = () => {
+  const { currency, locale } = useContext(MoneyFormatContext);
+  return useCallback(
+    (value: number) => formatCurrency(value, currency, locale),
+    [currency, locale],
+  );
+};
+
 const getErrorCode = (error: unknown) =>
   typeof error === "object" && error && "code" in error
     ? String((error as { code?: string }).code)
@@ -140,7 +167,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState("");
-  const [masterPassword, setMasterPassword] = useState("");
+  const [masterPin, setMasterPin] = useState("");
   const [unlockError, setUnlockError] = useState("");
   const [cryptoKey, setCryptoKey] = useState<CryptoKey | null>(null);
   const [salt, setSalt] = useState("");
@@ -176,7 +203,7 @@ export default function App() {
       if (!nextUser) {
         setCryptoKey(null);
         setSalt("");
-        setMasterPassword("");
+        setMasterPin("");
         setData(defaultAppData);
         setSync(initialSync);
       }
@@ -257,6 +284,13 @@ export default function App() {
     event.preventDefault();
     if (!user) return;
     setUnlockError("");
+    const normalizedPin = masterPin.trim();
+    if (!/^\d{6}$/.test(normalizedPin)) {
+      const message = "Ingresa un PIN de exactamente 6 digitos.";
+      setUnlockError(message);
+      pushToast("danger", "PIN invalido", message);
+      return;
+    }
     setSync({ status: "loading", message: "Buscando datos cifrados" });
 
     try {
@@ -274,13 +308,13 @@ export default function App() {
         ? remoteBlocks
         : cachedBlocks;
       const activeSalt = readFirstSalt(blocksToRead) || generateSalt();
-      const key = await deriveEncryptionKey(masterPassword, user.uid, activeSalt);
+      const key = await deriveEncryptionKey(normalizedPin, user.uid, activeSalt);
 
       if (hasAnyRemoteData(blocksToRead)) {
         const nextData = await decryptAppData(blocksToRead, key);
         setCryptoKey(key);
         setSalt(activeSalt);
-        setMasterPassword("");
+        setMasterPin("");
         setData(nextData);
         cacheEncryptedBlocks(user.uid, blocksToRead);
         setSync({
@@ -302,7 +336,7 @@ export default function App() {
       const firstData = structuredClone(defaultAppData);
       setCryptoKey(key);
       setSalt(activeSalt);
-      setMasterPassword("");
+      setMasterPin("");
       setData(firstData);
       await persistData(firstData, key, activeSalt);
       setSync({
@@ -315,10 +349,10 @@ export default function App() {
     } catch (error) {
       const message =
         error instanceof Error
-          ? `No se pudo desbloquear. Revisa la contrasena maestra. ${error.message}`
-          : "No se pudo desbloquear. Revisa la contrasena maestra.";
+          ? `No se pudo desbloquear. Revisa tu PIN. ${error.message}`
+          : "No se pudo desbloquear. Revisa tu PIN.";
       setUnlockError(message);
-      setMasterPassword("");
+      setMasterPin("");
       setSync({ status: "error", message: "Desbloqueo fallido" });
       pushToast("danger", "Desbloqueo fallido", message);
     }
@@ -348,7 +382,7 @@ export default function App() {
   const handleLogout = async () => {
     setCryptoKey(null);
     setSalt("");
-    setMasterPassword("");
+    setMasterPin("");
     await signOut(auth);
     pushToast("info", "Sesion cerrada", "La clave local fue descartada.");
   };
@@ -429,6 +463,15 @@ export default function App() {
     setMenuOpen(false);
   };
 
+  const selectedCurrency = getCurrencyOption(
+    data.settings.currency,
+    data.settings.currencyCountry,
+  );
+  const moneyFormat = {
+    currency: selectedCurrency.currency,
+    locale: data.settings.currencyLocale || selectedCurrency.locale,
+  };
+
   const toastLayer = (
     <ToastLayer toasts={toasts} onClose={removeToast} />
   );
@@ -461,24 +504,32 @@ export default function App() {
       <>
         <AuthShell userName={user.displayName || user.email || "Usuario"}>
           <Form className="d-grid gap-3" onSubmit={handleUnlock}>
-            <Form.Group controlId="masterPassword">
-              <Form.Label>Contrasena maestra</Form.Label>
+            <Form.Group controlId="masterPin">
+              <Form.Label>PIN de cifrado</Form.Label>
               <Form.Control
                 type="password"
-                value={masterPassword}
-                onChange={(event) => setMasterPassword(event.target.value)}
-                minLength={8}
+                value={masterPin}
+                onChange={(event) =>
+                  setMasterPin(event.target.value.replace(/\D/g, "").slice(0, 6))
+                }
+                inputMode="numeric"
+                pattern="\d{6}"
+                minLength={6}
+                maxLength={6}
+                placeholder="6 digitos"
+                autoComplete="one-time-code"
                 required
                 autoFocus
               />
+              <Form.Text>Usa exactamente 6 numeros.</Form.Text>
             </Form.Group>
             <Button variant="primary" size="lg" type="submit">
               <Icon name="lock" /> Desbloquear datos
             </Button>
             {unlockError && <Alert variant="danger">{unlockError}</Alert>}
             <Alert variant="info" className="mb-0">
-              Esta contrasena deriva la clave de cifrado en tu navegador. No se
-              guarda y no se puede recuperar.
+              Este PIN deriva la clave de cifrado en tu navegador. No se guarda
+              y no se puede recuperar.
             </Alert>
           </Form>
         </AuthShell>
@@ -489,87 +540,89 @@ export default function App() {
 
   return (
     <>
-      <div className="app-shell">
-        <DesktopSidebar view={view} onSelect={selectView} />
-        <div className="app-main">
-          <MobileNavbar
-            view={view}
-            open={menuOpen}
-            onToggle={setMenuOpen}
-            onSelect={selectView}
-          />
-          <Container fluid className="app-content">
-            <Header sync={sync} onLogout={handleLogout} />
-            {view === "dashboard" && (
-              <Dashboard data={data} report={report} dues={dues} alerts={alerts} />
-            )}
-            {view === "expenses" && (
-              <ExpensesView
-                data={data}
-                updateData={updateData}
-                confirm={setConfirmRequest}
-              />
-            )}
-            {view === "loans" && (
-              <LoansView
-                data={data}
-                updateData={updateData}
-                confirm={setConfirmRequest}
-              />
-            )}
-            {view === "cards" && (
-              <CardsView
-                data={data}
-                updateData={updateData}
-                confirm={setConfirmRequest}
-              />
-            )}
-            {view === "calendar" && <CalendarView dues={dues} />}
-            {view === "reports" && <ReportsView data={data} report={report} />}
-            {view === "backup" && (
-              <BackupView
-                onExport={exportBackup}
-                onImportClick={() => fileInputRef.current?.click()}
-                onClearCache={() =>
-                  setConfirmRequest({
-                    title: "Limpiar cache local",
-                    message:
-                      "Esto elimina la copia cifrada de este navegador. No borra Firestore.",
-                    confirmLabel: "Limpiar cache",
-                    variant: "danger",
-                    onConfirm: () => {
-                      if (user) clearCachedBlocks(user.uid);
-                      setSync({
-                        status: "idle",
-                        message: "Cache local cifrada limpiada",
-                      });
-                      pushToast(
-                        "info",
-                        "Cache limpiada",
-                        "Se elimino la copia cifrada local.",
-                      );
-                    },
-                  })
-                }
-              />
-            )}
-            {view === "settings" && (
-              <SettingsView
-                data={data}
-                updateData={updateData}
-                confirm={setConfirmRequest}
-              />
-            )}
-            <input
-              ref={fileInputRef}
-              className="d-none"
-              type="file"
-              accept="application/json"
-              onChange={importBackup}
+      <MoneyFormatContext.Provider value={moneyFormat}>
+        <div className="app-shell">
+          <DesktopSidebar view={view} onSelect={selectView} />
+          <div className="app-main">
+            <MobileNavbar
+              view={view}
+              open={menuOpen}
+              onToggle={setMenuOpen}
+              onSelect={selectView}
             />
-          </Container>
+            <Container fluid className="app-content">
+              <Header sync={sync} onLogout={handleLogout} />
+              {view === "dashboard" && (
+                <Dashboard data={data} report={report} dues={dues} alerts={alerts} />
+              )}
+              {view === "expenses" && (
+                <ExpensesView
+                  data={data}
+                  updateData={updateData}
+                  confirm={setConfirmRequest}
+                />
+              )}
+              {view === "loans" && (
+                <LoansView
+                  data={data}
+                  updateData={updateData}
+                  confirm={setConfirmRequest}
+                />
+              )}
+              {view === "cards" && (
+                <CardsView
+                  data={data}
+                  updateData={updateData}
+                  confirm={setConfirmRequest}
+                />
+              )}
+              {view === "calendar" && <CalendarView dues={dues} />}
+              {view === "reports" && <ReportsView data={data} report={report} />}
+              {view === "backup" && (
+                <BackupView
+                  onExport={exportBackup}
+                  onImportClick={() => fileInputRef.current?.click()}
+                  onClearCache={() =>
+                    setConfirmRequest({
+                      title: "Limpiar cache local",
+                      message:
+                        "Esto elimina la copia cifrada de este navegador. No borra Firestore.",
+                      confirmLabel: "Limpiar cache",
+                      variant: "danger",
+                      onConfirm: () => {
+                        if (user) clearCachedBlocks(user.uid);
+                        setSync({
+                          status: "idle",
+                          message: "Cache local cifrada limpiada",
+                        });
+                        pushToast(
+                          "info",
+                          "Cache limpiada",
+                          "Se elimino la copia cifrada local.",
+                        );
+                      },
+                    })
+                  }
+                />
+              )}
+              {view === "settings" && (
+                <SettingsView
+                  data={data}
+                  updateData={updateData}
+                  confirm={setConfirmRequest}
+                />
+              )}
+              <input
+                ref={fileInputRef}
+                className="d-none"
+                type="file"
+                accept="application/json"
+                onChange={importBackup}
+              />
+            </Container>
+          </div>
         </div>
-      </div>
+      </MoneyFormatContext.Provider>
       <ConfirmModal
         request={confirmRequest}
         onCancel={() => setConfirmRequest(null)}
@@ -792,6 +845,12 @@ function Dashboard({
   dues: ReturnType<typeof getPaymentDues>;
   alerts: ReturnType<typeof getUpcomingAlerts>;
 }) {
+  const money = useMoney();
+  const selectedCurrency = getCurrencyOption(
+    data.settings.currency,
+    data.settings.currencyCountry,
+  );
+
   return (
     <section className="view-stack">
       <ViewTitle
@@ -801,21 +860,21 @@ function Dashboard({
 
       <Row xs={1} md={2} xl={4} className="g-3">
         <Col>
-          <MetricCard label="Ingreso mensual" value={formatCurrency(report.income)} />
+          <MetricCard label="Ingreso mensual" value={money(report.income)} />
         </Col>
         <Col>
-          <MetricCard label="Gastos fijos" value={formatCurrency(report.fixedExpenses)} />
+          <MetricCard label="Gastos fijos" value={money(report.fixedExpenses)} />
         </Col>
         <Col>
           <MetricCard
             label="Tarjetas y prestamos"
-            value={formatCurrency(report.cardPayments + report.loanPayments)}
+            value={money(report.cardPayments + report.loanPayments)}
           />
         </Col>
         <Col>
           <MetricCard
             label="Disponible real"
-            value={formatCurrency(report.available)}
+            value={money(report.available)}
             accent={report.available >= 0 ? "positive" : "negative"}
           />
         </Col>
@@ -852,7 +911,10 @@ function Dashboard({
 
       <Card className="shadow-sm">
         <Card.Body>
-          <SectionTitle title="Distribucion mensual" count={data.settings.currency} />
+          <SectionTitle
+            title="Distribucion mensual"
+            count={`${selectedCurrency.country} - ${selectedCurrency.currency}`}
+          />
           <div className="d-grid gap-3">
             <BudgetBar label="Fijos" value={report.fixedExpenses} max={report.income} />
             <BudgetBar label="Variables" value={report.variableExpenses} max={report.income} />
@@ -874,17 +936,23 @@ function ExpensesView({
   updateData: (producer: (current: AppData) => AppData) => Promise<void>;
   confirm: (options: ConfirmOptions) => void;
 }) {
+  const money = useMoney();
+
   const addExpense = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const frequency = toStringValue(form.get("frequency")) as Frequency;
     const kind = toStringValue(form.get("kind")) as ExpenseKind;
+    const priority = toStringValue(form.get("priority")) as ExpensePriority;
     const expense: Expense = {
       id: createId("expense"),
       name: toStringValue(form.get("name")),
       amount: toNumber(form.get("amount")),
       category: toStringValue(form.get("category")),
       kind,
+      priority,
+      paymentMethod: toStringValue(form.get("paymentMethod")),
+      notes: toStringValue(form.get("notes")),
       dueDay: frequency === "monthly" ? toNumber(form.get("dueDay")) : undefined,
       date: frequency === "once" ? toStringValue(form.get("date")) : undefined,
       paid: false,
@@ -928,6 +996,28 @@ function ExpensesView({
               </Col>
               <Col>
                 <Form.Group>
+                  <Form.Label>Ambito</Form.Label>
+                  <Form.Select name="priority" defaultValue="essential">
+                    {expensePriorities.map((priority) => (
+                      <option key={priority.value} value={priority.value}>
+                        {priority.label}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col>
+                <Form.Group>
+                  <Form.Label>Metodo de pago</Form.Label>
+                  <Form.Select name="paymentMethod" defaultValue="Transferencia">
+                    {paymentMethods.map((method) => (
+                      <option key={method}>{method}</option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col>
+                <Form.Group>
                   <Form.Label>Tipo</Form.Label>
                   <Form.Select name="kind" defaultValue="fixed">
                     <option value="fixed">Fijo</option>
@@ -956,6 +1046,12 @@ function ExpensesView({
                   <Form.Control name="date" type="date" defaultValue={todayIso()} />
                 </Form.Group>
               </Col>
+              <Col xl={8}>
+                <Form.Group>
+                  <Form.Label>Notas</Form.Label>
+                  <Form.Control name="notes" placeholder="Detalle opcional" />
+                </Form.Group>
+              </Col>
               <Col>
                 <Button type="submit" variant="primary" className="w-100">
                   <Icon name="plus-lg" /> Agregar gasto
@@ -980,9 +1076,26 @@ function ExpensesView({
                   <span className="text-secondary">
                     {expense.category} · {expense.kind === "fixed" ? "Fijo" : "Variable"}
                   </span>
+                  <div className="d-flex flex-wrap gap-1 mt-1">
+                    {expense.priority && (
+                      <Badge bg="light" text="dark">
+                        {expensePriorityLabel(expense.priority)}
+                      </Badge>
+                    )}
+                    {expense.paymentMethod && (
+                      <Badge bg="light" text="dark">
+                        {expense.paymentMethod}
+                      </Badge>
+                    )}
+                  </div>
+                  {expense.notes && (
+                    <span className="d-block text-secondary small mt-1">
+                      {expense.notes}
+                    </span>
+                  )}
                 </div>
                 <div className="d-flex flex-wrap gap-2 align-items-center justify-content-md-end">
-                  <strong>{formatCurrency(expense.amount)}</strong>
+                  <strong>{money(expense.amount)}</strong>
                   <StatusBadge status={expense.paid ? "paid" : "due"} />
                   <Button
                     variant="outline-success"
@@ -1043,6 +1156,8 @@ function LoansView({
   updateData: (producer: (current: AppData) => AppData) => Promise<void>;
   confirm: (options: ConfirmOptions) => void;
 }) {
+  const money = useMoney();
+
   const addLoan = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -1125,8 +1240,8 @@ function LoansView({
                   <Card.Title className="mb-0 text-break">{loan.lender}</Card.Title>
                   <StatusBadge status={loan.paidThisMonth ? "paid" : "due"} />
                 </div>
-                <StatPair label="Saldo" value={formatCurrency(loan.balance)} />
-                <StatPair label="Cuota" value={formatCurrency(loan.monthlyPayment)} />
+                <StatPair label="Saldo" value={money(loan.balance)} />
+                <StatPair label="Cuota" value={money(loan.monthlyPayment)} />
                 <StatPair label="Vence" value={formatDate(loan.nextDueDate)} />
                 <div className="d-flex flex-wrap gap-2 mt-3">
                   <Button
@@ -1192,6 +1307,8 @@ function CardsView({
   updateData: (producer: (current: AppData) => AppData) => Promise<void>;
   confirm: (options: ConfirmOptions) => void;
 }) {
+  const money = useMoney();
+
   const addCard = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -1311,10 +1428,10 @@ function CardsView({
                   </div>
                   <StatPair
                     label="Uso"
-                    value={`${formatCurrency(used)} / ${formatCurrency(card.limit)}`}
+                    value={`${money(used)} / ${money(card.limit)}`}
                   />
                   <ProgressBar now={usage} className="mb-3" />
-                  <StatPair label="Pago mensual" value={formatCurrency(monthly)} />
+                  <StatPair label="Pago mensual" value={money(monthly)} />
                   <StatPair label="Cierre / pago" value={`${card.closingDay} / ${card.paymentDay}`} />
 
                   <Form className="mt-3" onSubmit={(event) => addPurchase(event, card.id)}>
@@ -1359,7 +1476,7 @@ function CardsView({
                           </span>
                         </div>
                         <div className="d-flex gap-2 align-items-center">
-                          <strong>{formatCurrency(purchase.amount)}</strong>
+                          <strong>{money(purchase.amount)}</strong>
                           <Button
                             variant="outline-success"
                             size="sm"
@@ -1410,6 +1527,8 @@ function CardsView({
 }
 
 function CalendarView({ dues }: { dues: ReturnType<typeof getPaymentDues> }) {
+  const money = useMoney();
+
   return (
     <section className="view-stack">
       <ViewTitle title="Calendario" subtitle="Vencimientos ordenados por fecha." />
@@ -1436,7 +1555,7 @@ function CalendarView({ dues }: { dues: ReturnType<typeof getPaymentDues> }) {
                     </div>
                   </div>
                   <div className="d-flex flex-wrap gap-2 align-items-center">
-                    <strong>{formatCurrency(due.amount)}</strong>
+                    <strong>{money(due.amount)}</strong>
                     <StatusBadge status={due.status} />
                   </div>
                 </ListGroup.Item>
@@ -1457,6 +1576,11 @@ function ReportsView({
   data: AppData;
   report: ReturnType<typeof getMonthlyReport>;
 }) {
+  const money = useMoney();
+  const expenseCategoryTotals = getExpenseCategoryTotals(data);
+  const expensePriorityTotals = getExpensePriorityTotals(data);
+  const incomeCategoryTotals = getIncomeCategoryTotals(data);
+
   return (
     <section className="view-stack">
       <ViewTitle title="Reportes" subtitle="Cierre mensual calculado desde tus registros." />
@@ -1465,12 +1589,12 @@ function ReportsView({
           <MetricCard label="Mes" value={report.monthKey} />
         </Col>
         <Col>
-          <MetricCard label="Ingreso" value={formatCurrency(report.income)} />
+          <MetricCard label="Ingreso" value={money(report.income)} />
         </Col>
         <Col>
           <MetricCard
             label="Total comprometido"
-            value={formatCurrency(
+            value={money(
               report.fixedExpenses +
                 report.variableExpenses +
                 report.loanPayments +
@@ -1479,7 +1603,7 @@ function ReportsView({
           />
         </Col>
         <Col>
-          <MetricCard label="Disponible" value={formatCurrency(report.available)} />
+          <MetricCard label="Disponible" value={money(report.available)} />
         </Col>
       </Row>
       <Card className="shadow-sm">
@@ -1496,6 +1620,29 @@ function ReportsView({
           </div>
         </Card.Body>
       </Card>
+      <Row xs={1} lg={3} className="g-3">
+        <Col>
+          <AmountBreakdown
+            title="Gastos por categoria"
+            items={expenseCategoryTotals}
+            emptyText="Sin gastos categorizados."
+          />
+        </Col>
+        <Col>
+          <AmountBreakdown
+            title="Gastos por ambito"
+            items={expensePriorityTotals}
+            emptyText="Sin ambitos registrados."
+          />
+        </Col>
+        <Col>
+          <AmountBreakdown
+            title="Ingresos por categoria"
+            items={incomeCategoryTotals}
+            emptyText="Sin ingresos categorizados."
+          />
+        </Col>
+      </Row>
     </section>
   );
 }
@@ -1560,13 +1707,27 @@ function SettingsView({
   updateData: (producer: (current: AppData) => AppData) => Promise<void>;
   confirm: (options: ConfirmOptions) => void;
 }) {
+  const money = useMoney();
+  const selectedCurrency = getCurrencyOption(
+    data.settings.currency,
+    data.settings.currencyCountry,
+  );
+
   const saveSettings = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const selectedCurrencyId = toStringValue(form.get("currencyOption"));
+    const nextCurrency =
+      currencyOptions.find((option) => option.id === selectedCurrencyId) ||
+      selectedCurrency;
+
     await updateData((current) => ({
       ...current,
       settings: {
         ...current.settings,
+        currency: nextCurrency.currency,
+        currencyCountry: nextCurrency.countryCode,
+        currencyLocale: nextCurrency.locale,
         monthlyIncome: toNumber(form.get("monthlyIncome")),
         alertDaysBefore: toNumber(form.get("alertDaysBefore")),
       },
@@ -1582,6 +1743,8 @@ function SettingsView({
       amount: toNumber(form.get("amount")),
       date: toStringValue(form.get("date")),
       recurring: form.get("recurring") === "on",
+      category: toStringValue(form.get("category")),
+      notes: toStringValue(form.get("notes")),
     };
     event.currentTarget.reset();
     await updateData((current) => ({
@@ -1597,6 +1760,25 @@ function SettingsView({
         <Card.Body>
           <Form onSubmit={saveSettings}>
             <Row xs={1} md={3} className="g-3 align-items-end">
+              <Col md={6} xl={4}>
+                <Form.Group>
+                  <Form.Label>Moneda principal</Form.Label>
+                  <Form.Select
+                    name="currencyOption"
+                    defaultValue={selectedCurrency.id}
+                  >
+                    {currencyOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.country} - {option.currencyName} ({option.currency})
+                      </option>
+                    ))}
+                  </Form.Select>
+                  <Form.Text>
+                    Pais: {selectedCurrency.country} · Moneda:{" "}
+                    {selectedCurrency.currencyName} ({selectedCurrency.currency})
+                  </Form.Text>
+                </Form.Group>
+              </Col>
               <Col>
                 <Form.Group>
                   <Form.Label>Ingreso mensual base</Form.Label>
@@ -1651,8 +1833,24 @@ function SettingsView({
               </Col>
               <Col>
                 <Form.Group>
+                  <Form.Label>Categoria</Form.Label>
+                  <Form.Select name="category" defaultValue="Salario">
+                    {incomeCategories.map((category) => (
+                      <option key={category}>{category}</option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col>
+                <Form.Group>
                   <Form.Label>Fecha</Form.Label>
                   <Form.Control name="date" required type="date" defaultValue={todayIso()} />
+                </Form.Group>
+              </Col>
+              <Col xl={2}>
+                <Form.Group>
+                  <Form.Label>Notas</Form.Label>
+                  <Form.Control name="notes" placeholder="Detalle opcional" />
                 </Form.Group>
               </Col>
               <Col>
@@ -1680,11 +1878,15 @@ function SettingsView({
                 <div className="min-w-0">
                   <strong className="d-block">{income.source}</strong>
                   <span className="text-secondary">
+                    {income.category || "Sin categoria"} ·{" "}
                     {income.recurring ? "Recurrente" : formatDate(income.date)}
                   </span>
+                  {income.notes && (
+                    <span className="d-block text-secondary small">{income.notes}</span>
+                  )}
                 </div>
                 <div className="d-flex gap-2 align-items-center">
-                  <strong>{formatCurrency(income.amount)}</strong>
+                  <strong>{money(income.amount)}</strong>
                   <Button
                     variant="outline-danger"
                     size="sm"
@@ -1716,6 +1918,48 @@ function SettingsView({
   );
 }
 
+function expensePriorityLabel(priority: ExpensePriority) {
+  return (
+    expensePriorities.find((item) => item.value === priority)?.label ||
+    "Sin ambito"
+  );
+}
+
+function AmountBreakdown({
+  title,
+  items,
+  emptyText,
+}: {
+  title: string;
+  items: Array<{ label: string; amount: number }>;
+  emptyText: string;
+}) {
+  const money = useMoney();
+  const max = Math.max(...items.map((item) => item.amount), 0);
+  return (
+    <Card className="h-100 shadow-sm">
+      <Card.Body>
+        <SectionTitle title={title} count={items.length} />
+        {items.length === 0 ? (
+          <EmptyState text={emptyText} />
+        ) : (
+          <div className="d-grid gap-3">
+            {items.map((item) => (
+              <div key={item.label}>
+                <div className="d-flex justify-content-between gap-3 mb-1">
+                  <span className="text-secondary">{item.label}</span>
+                  <strong>{money(item.amount)}</strong>
+                </div>
+                <ProgressBar now={max > 0 ? (item.amount / max) * 100 : 0} />
+              </div>
+            ))}
+          </div>
+        )}
+      </Card.Body>
+    </Card>
+  );
+}
+
 function MetricCard({
   label,
   value,
@@ -1736,12 +1980,13 @@ function MetricCard({
 }
 
 function BudgetBar({ label, value, max }: { label: string; value: number; max: number }) {
+  const money = useMoney();
   const width = max > 0 ? Math.min((value / max) * 100, 100) : 0;
   return (
     <div>
       <div className="d-flex justify-content-between gap-3 mb-1">
         <span className="text-secondary">{label}</span>
-        <strong>{formatCurrency(value)}</strong>
+        <strong>{money(value)}</strong>
       </div>
       <ProgressBar now={width} />
     </div>
@@ -1757,6 +2002,8 @@ function PaymentList({
   emptyText: string;
   showStatus?: boolean;
 }) {
+  const money = useMoney();
+
   if (dues.length === 0) return <EmptyState text={emptyText} />;
   return (
     <ListGroup variant="flush">
@@ -1772,7 +2019,7 @@ function PaymentList({
             </span>
           </div>
           <div className="d-flex flex-wrap align-items-center gap-2 justify-content-sm-end">
-            <strong>{formatCurrency(due.amount)}</strong>
+            <strong>{money(due.amount)}</strong>
             {showStatus && <StatusBadge status={due.status} />}
           </div>
         </ListGroup.Item>
@@ -1796,10 +2043,12 @@ function StatusBadge({ status }: { status: "paid" | "due" | "overdue" }) {
 }
 
 function ReportLine({ label, value }: { label: string; value: number }) {
+  const money = useMoney();
+
   return (
     <div className="d-flex flex-column flex-sm-row justify-content-between gap-1 border-bottom pb-2">
       <span className="text-secondary">{label}</span>
-      <strong>{formatCurrency(value)}</strong>
+      <strong>{money(value)}</strong>
     </div>
   );
 }
@@ -1935,3 +2184,4 @@ function ToastLayer({
     </ToastContainer>
   );
 }
+

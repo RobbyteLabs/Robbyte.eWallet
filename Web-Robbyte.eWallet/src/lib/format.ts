@@ -1,9 +1,21 @@
-export const formatCurrency = (value: number, currency = "PEN") =>
-  new Intl.NumberFormat("es-PE", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(Number.isFinite(value) ? value : 0);
+import { getCurrencyOption } from "../data/defaults";
+
+export const formatCurrency = (
+  value: number,
+  currency = "PEN",
+  locale?: string,
+) => {
+  const option = getCurrencyOption(currency);
+  try {
+    return new Intl.NumberFormat(locale || option.locale, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    }).format(Number.isFinite(value) ? value : 0);
+  } catch {
+    return `${currency} ${(Number.isFinite(value) ? value : 0).toFixed(2)}`;
+  }
+};
 
 export const formatDate = (date: string) =>
   new Intl.DateTimeFormat("es-PE", {

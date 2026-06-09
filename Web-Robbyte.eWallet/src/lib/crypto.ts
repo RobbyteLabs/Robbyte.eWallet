@@ -18,8 +18,13 @@ const toBase64 = (bytes: Uint8Array) => {
 const fromBase64 = (base64: string) =>
   Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 
-const normalizePassword = (password: string, uid: string) =>
-  `${uid}:${password.trim()}`;
+const normalizePin = (pin: string, uid: string) => {
+  const normalizedPin = pin.trim();
+  if (!/^\d{6}$/.test(normalizedPin)) {
+    throw new Error("El PIN debe tener exactamente 6 digitos.");
+  }
+  return `${uid}:${normalizedPin}`;
+};
 
 export const generateSalt = () => {
   const salt = new Uint8Array(16);
@@ -28,13 +33,13 @@ export const generateSalt = () => {
 };
 
 export const deriveEncryptionKey = async (
-  password: string,
+  pin: string,
   uid: string,
   saltBase64: string,
 ) => {
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
-    encoder.encode(normalizePassword(password, uid)),
+    encoder.encode(normalizePin(pin, uid)),
     "PBKDF2",
     false,
     ["deriveKey"],

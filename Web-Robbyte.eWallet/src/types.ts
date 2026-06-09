@@ -1,11 +1,15 @@
-export type Currency = "PEN";
+export type Currency = string;
 
 export type ExpenseKind = "fixed" | "variable";
 
 export type Frequency = "monthly" | "once";
 
+export type ExpensePriority = "essential" | "lifestyle" | "savings" | "debt";
+
 export interface UserSettings {
   currency: Currency;
+  currencyCountry?: string;
+  currencyLocale?: string;
   monthlyIncome: number;
   alertDaysBefore: number;
 }
@@ -16,6 +20,8 @@ export interface Income {
   amount: number;
   date: string;
   recurring: boolean;
+  category?: string;
+  notes?: string;
 }
 
 export interface Expense {
@@ -28,6 +34,9 @@ export interface Expense {
   date?: string;
   paid: boolean;
   frequency: Frequency;
+  priority?: ExpensePriority;
+  paymentMethod?: string;
+  notes?: string;
 }
 
 export interface Loan {
