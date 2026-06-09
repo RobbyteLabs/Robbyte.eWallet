@@ -1,11 +1,4 @@
-import type {
-  AppData,
-  CreditCard,
-  Expense,
-  ExpensePriority,
-  MonthlyReport,
-  PaymentDue,
-} from "../types";
+import type { AppData, CreditCard, Expense, MonthlyReport, PaymentDue } from "../types";
 import { monthKey, todayIso } from "./format";
 
 const dateFromDay = (day: number, base = new Date()) => {
@@ -168,16 +161,9 @@ export const getIncomeCategoryTotals = (data: AppData) =>
     ...groupAmounts(data.incomes, (income) => income.category, (income) => income.amount),
   ].sort((a, b) => b.amount - a.amount);
 
-const priorityLabels: Record<ExpensePriority, string> = {
-  essential: "Necesario",
-  lifestyle: "Estilo de vida",
-  savings: "Ahorro/Inversion",
-  debt: "Deuda",
-};
-
 export const getExpensePriorityTotals = (data: AppData) =>
   groupAmounts(
     data.expenses,
-    (expense) => priorityLabels[expense.priority || "essential"],
+    (expense) => expense.priority || "essential",
     (expense) => expense.amount,
   );

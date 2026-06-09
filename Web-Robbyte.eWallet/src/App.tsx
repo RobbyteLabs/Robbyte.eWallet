@@ -57,6 +57,13 @@ import {
 } from "./lib/crypto";
 import { auth, googleProvider } from "./lib/firebase";
 import { formatCurrency, formatDate, todayIso } from "./lib/format";
+import {
+  getLanguageOption,
+  languageOptions,
+  localizeDataLabel,
+  translate,
+  type TranslationKey,
+} from "./lib/i18n";
 import { createId } from "./lib/ids";
 import {
   cacheEncryptedBlocks,
@@ -78,6 +85,7 @@ import type {
   ExpensePriority,
   Frequency,
   Income,
+  Language,
   Loan,
   PaymentDue,
   SyncState,
@@ -100,15 +108,15 @@ interface ConfirmOptions {
   onConfirm: () => Promise<void> | void;
 }
 
-const views: Array<{ id: AppView; label: string; icon: string }> = [
-  { id: "dashboard", label: "Dashboard", icon: "speedometer2" },
-  { id: "expenses", label: "Gastos", icon: "wallet2" },
-  { id: "loans", label: "Prestamos", icon: "bank" },
-  { id: "cards", label: "Tarjetas", icon: "credit-card" },
-  { id: "calendar", label: "Calendario", icon: "calendar-event" },
-  { id: "reports", label: "Reportes", icon: "file-earmark-bar-graph" },
-  { id: "backup", label: "Backups", icon: "download" },
-  { id: "settings", label: "Ajustes", icon: "gear" },
+const views: Array<{ id: AppView; labelKey: TranslationKey; icon: string }> = [
+  { id: "dashboard", labelKey: "nav.dashboard", icon: "speedometer2" },
+  { id: "expenses", labelKey: "nav.expenses", icon: "wallet2" },
+  { id: "loans", labelKey: "nav.loans", icon: "bank" },
+  { id: "cards", labelKey: "nav.cards", icon: "credit-card" },
+  { id: "calendar", labelKey: "nav.calendar", icon: "calendar-event" },
+  { id: "reports", labelKey: "nav.reports", icon: "file-earmark-bar-graph" },
+  { id: "backup", labelKey: "nav.backup", icon: "download" },
+  { id: "settings", labelKey: "nav.settings", icon: "gear" },
 ];
 
 const initialSync: SyncState = {
@@ -131,6 +139,12 @@ const MoneyFormatContext = createContext({
   locale: "es-PE",
 });
 
+const LanguageContext = createContext({
+  language: "es" as Language,
+  locale: "es-PE",
+  t: (key: TranslationKey) => translate("es", key),
+});
+
 const useMoney = () => {
   const { currency, locale } = useContext(MoneyFormatContext);
   return useCallback(
@@ -139,28 +153,38 @@ const useMoney = () => {
   );
 };
 
+const useLanguage = () => useContext(LanguageContext);
+
+const useT = () => useLanguage().t;
+
+const useDateFormatter = () => {
+  const { locale } = useLanguage();
+  return useCallback((date: string) => formatDate(date, locale), [locale]);
+};
+
 const getErrorCode = (error: unknown) =>
   typeof error === "object" && error && "code" in error
     ? String((error as { code?: string }).code)
     : "";
 
-const authErrorMessage = (error: unknown) => {
+const authErrorMessage = (
+  error: unknown,
+  t: (key: TranslationKey) => string,
+) => {
   const code = getErrorCode(error);
   if (code === "auth/unauthorized-domain") {
-    return "Este dominio no esta autorizado en Firebase Authentication.";
+    return t("auth.domainError");
   }
   if (code === "auth/operation-not-allowed") {
-    return "El proveedor Google no esta activado en Firebase Authentication.";
+    return t("auth.providerError");
   }
   if (code === "auth/popup-blocked") {
-    return "El navegador bloqueo la ventana de Google.";
+    return t("auth.popupBlocked");
   }
   if (code === "auth/popup-closed-by-user") {
-    return "La ventana se cerro antes de completar el inicio de sesion.";
+    return t("auth.popupClosed");
   }
-  return error instanceof Error
-    ? error.message
-    : "No se pudo iniciar sesion con Google.";
+  return error instanceof Error ? error.message : t("auth.loginError");
 };
 
 export default function App() {
@@ -181,6 +205,17 @@ export default function App() {
   );
   const [alertToastKey, setAlertToastKey] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const languageOption = getLanguageOption(data.settings.language);
+  const languageValue = useMemo(
+    () => ({
+      language: languageOption.code,
+      locale: languageOption.locale,
+      t: (key: TranslationKey) => translate(languageOption.code, key),
+    }),
+    [languageOption.code, languageOption.locale],
+  );
+  const t = languageValue.t;
 
   const pushToast = useCallback(
     (tone: ToastTone, title: string, message: string) => {
@@ -221,20 +256,20 @@ export default function App() {
     nextSalt = salt,
   ) => {
     if (!user || !nextKey || !nextSalt) return;
-    setSync({ status: "saving", message: "Cifrando y guardando cambios" });
+    setSync({ status: "saving", message: t("sync.encrypting") });
     const blocks = await encryptAppData(nextData, nextKey, nextSalt);
     cacheEncryptedBlocks(user.uid, blocks);
 
     if (!navigator.onLine) {
       setSync({
         status: "offline",
-        message: "Guardado local cifrado; pendiente de sincronizar",
+        message: t("sync.localOnly"),
         lastSavedAt: new Date().toISOString(),
       });
       pushToast(
         "warning",
-        "Guardado local",
-        "No hay conexion. Los datos quedaron cifrados en este navegador.",
+        t("toast.localSaveTitle"),
+        t("toast.localSaveMessage"),
       );
       return;
     }
@@ -243,21 +278,21 @@ export default function App() {
       await saveRemoteBlocks(user.uid, blocks);
       setSync({
         status: "idle",
-        message: "Sincronizado con Firestore",
+        message: t("sync.synced"),
         lastSavedAt: new Date().toISOString(),
       });
-      pushToast("success", "Sincronizado", "Cambios guardados en Firestore.");
+      pushToast("success", t("toast.syncedTitle"), t("toast.syncedMessage"));
     } catch (error) {
       const message =
         error instanceof Error
-          ? `Guardado local cifrado; Firestore fallo: ${error.message}`
-          : "Guardado local cifrado; Firestore fallo";
+          ? `${t("sync.firestoreFailed")}: ${error.message}`
+          : t("sync.firestoreFailed");
       setSync({
         status: "error",
         message,
         lastSavedAt: new Date().toISOString(),
       });
-      pushToast("warning", "Firestore no disponible", message);
+      pushToast("warning", t("toast.firestoreTitle"), message);
     }
   };
 
@@ -272,11 +307,11 @@ export default function App() {
     setUnlockError("");
     try {
       await signInWithPopup(auth, googleProvider);
-      pushToast("success", "Sesion iniciada", "Google autentico tu cuenta.");
+      pushToast("success", t("toast.loginTitle"), t("toast.loginMessage"));
     } catch (error) {
-      const message = authErrorMessage(error);
+      const message = authErrorMessage(error, t);
       setAuthError(message);
-      pushToast("danger", "Error de autenticacion", message);
+      pushToast("danger", t("toast.authErrorTitle"), message);
     }
   };
 
@@ -286,12 +321,12 @@ export default function App() {
     setUnlockError("");
     const normalizedPin = masterPin.trim();
     if (!/^\d{6}$/.test(normalizedPin)) {
-      const message = "Ingresa un PIN de exactamente 6 digitos.";
+      const message = t("auth.pinInvalid");
       setUnlockError(message);
-      pushToast("danger", "PIN invalido", message);
+      pushToast("danger", t("toast.pinInvalidTitle"), message);
       return;
     }
-    setSync({ status: "loading", message: "Buscando datos cifrados" });
+    setSync({ status: "loading", message: t("sync.loading") });
 
     try {
       let remoteBlocks: EncryptedAppBlocks = {};
@@ -320,15 +355,13 @@ export default function App() {
         setSync({
           status: remoteError ? "offline" : "idle",
           message: remoteError
-            ? "Datos abiertos desde cache cifrada"
-            : "Datos cifrados cargados desde Firestore",
+            ? t("sync.localOpen")
+            : t("sync.remoteOpen"),
         });
         pushToast(
           remoteError ? "warning" : "success",
-          "Vault desbloqueado",
-          remoteError
-            ? "Se abrio una copia cifrada local."
-            : "Datos cargados desde Firestore.",
+          t("toast.vaultUnlocked"),
+          remoteError ? t("toast.vaultLocal") : t("toast.vaultRemote"),
         );
         return;
       }
@@ -342,19 +375,19 @@ export default function App() {
       setSync({
         status: remoteError ? "offline" : "idle",
         message: remoteError
-          ? "Vault nuevo creado localmente"
-          : "Vault nuevo creado y cifrado",
+          ? t("sync.newLocal")
+          : t("sync.newRemote"),
       });
-      pushToast("success", "Vault creado", "Tu vault se inicializo sin datos.");
+      pushToast("success", t("toast.vaultCreated"), t("toast.vaultCreatedMessage"));
     } catch (error) {
       const message =
         error instanceof Error
-          ? `No se pudo desbloquear. Revisa tu PIN. ${error.message}`
-          : "No se pudo desbloquear. Revisa tu PIN.";
+          ? `${t("auth.unlockFailed")} ${error.message}`
+          : t("auth.unlockFailed");
       setUnlockError(message);
       setMasterPin("");
-      setSync({ status: "error", message: "Desbloqueo fallido" });
-      pushToast("danger", "Desbloqueo fallido", message);
+      setSync({ status: "error", message: t("sync.unlockFailed") });
+      pushToast("danger", t("toast.unlockFailed"), message);
     }
   };
 
@@ -374,17 +407,17 @@ export default function App() {
     setAlertToastKey(nextKey);
     pushToast(
       "warning",
-      "Vencimientos proximos",
-      `${alerts.length} pago(s) requieren revision.`,
+      t("toast.dueTitle"),
+      `${alerts.length} ${t("toast.dueMessage")}`,
     );
-  }, [alertToastKey, alerts, cryptoKey, pushToast]);
+  }, [alertToastKey, alerts, cryptoKey, pushToast, t]);
 
   const handleLogout = async () => {
     setCryptoKey(null);
     setSalt("");
     setMasterPin("");
     await signOut(auth);
-    pushToast("info", "Sesion cerrada", "La clave local fue descartada.");
+    pushToast("info", t("toast.logoutTitle"), t("toast.logoutMessage"));
   };
 
   const exportBackup = async () => {
@@ -412,7 +445,7 @@ export default function App() {
     link.download = encryptedBackupName();
     link.click();
     URL.revokeObjectURL(url);
-    pushToast("success", "Backup exportado", "Se genero un JSON cifrado.");
+    pushToast("success", t("toast.exportTitle"), t("toast.exportMessage"));
   };
 
   const importBackup = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -435,17 +468,17 @@ export default function App() {
       await saveRemoteBlocks(user.uid, blocks);
       setSync({
         status: "idle",
-        message: "Backup importado y sincronizado",
+        message: t("sync.imported"),
         lastSavedAt: new Date().toISOString(),
       });
-      pushToast("success", "Backup importado", "Datos restaurados y sincronizados.");
+      pushToast("success", t("toast.importTitle"), t("toast.importMessage"));
     } catch (error) {
       const message =
         error instanceof Error
           ? `No se pudo importar: ${error.message}`
           : "No se pudo importar el backup";
       setSync({ status: "error", message });
-      pushToast("danger", "Importacion fallida", message);
+      pushToast("danger", t("toast.importFailed"), message);
     } finally {
       event.target.value = "";
     }
@@ -478,34 +511,34 @@ export default function App() {
 
   if (!authReady) {
     return (
-      <>
-        <CenteredStatus label="Preparando autenticacion" />
+      <LanguageContext.Provider value={languageValue}>
+        <CenteredStatus label={t("auth.preparing")} />
         {toastLayer}
-      </>
+      </LanguageContext.Provider>
     );
   }
 
   if (!user) {
     return (
-      <>
+      <LanguageContext.Provider value={languageValue}>
         <AuthShell>
           {authError && <Alert variant="danger">{authError}</Alert>}
           <Button variant="primary" size="lg" className="w-100" onClick={handleLogin}>
-            <Icon name="shield-check" /> Entrar con Google
+            <Icon name="shield-check" /> {t("auth.loginWithGoogle")}
           </Button>
         </AuthShell>
         {toastLayer}
-      </>
+      </LanguageContext.Provider>
     );
   }
 
   if (!cryptoKey) {
     return (
-      <>
-        <AuthShell userName={user.displayName || user.email || "Usuario"}>
+      <LanguageContext.Provider value={languageValue}>
+        <AuthShell userName={user.displayName || user.email || t("auth.user")}>
           <Form className="d-grid gap-3" onSubmit={handleUnlock}>
             <Form.Group controlId="masterPin">
-              <Form.Label>PIN de cifrado</Form.Label>
+              <Form.Label>{t("auth.pinLabel")}</Form.Label>
               <Form.Control
                 type="password"
                 value={masterPin}
@@ -516,31 +549,31 @@ export default function App() {
                 pattern="\d{6}"
                 minLength={6}
                 maxLength={6}
-                placeholder="6 digitos"
+                placeholder={t("auth.pinPlaceholder")}
                 autoComplete="one-time-code"
                 required
                 autoFocus
               />
-              <Form.Text>Usa exactamente 6 numeros.</Form.Text>
+              <Form.Text>{t("auth.pinHelp")}</Form.Text>
             </Form.Group>
             <Button variant="primary" size="lg" type="submit">
-              <Icon name="lock" /> Desbloquear datos
+              <Icon name="lock" /> {t("auth.unlock")}
             </Button>
             {unlockError && <Alert variant="danger">{unlockError}</Alert>}
             <Alert variant="info" className="mb-0">
-              Este PIN deriva la clave de cifrado en tu navegador. No se guarda
-              y no se puede recuperar.
+              {t("auth.pinNotice")}
             </Alert>
           </Form>
         </AuthShell>
         {toastLayer}
-      </>
+      </LanguageContext.Provider>
     );
   }
 
   return (
-    <>
-      <MoneyFormatContext.Provider value={moneyFormat}>
+    <LanguageContext.Provider value={languageValue}>
+      <>
+        <MoneyFormatContext.Provider value={moneyFormat}>
         <div className="app-shell">
           <DesktopSidebar view={view} onSelect={selectView} />
           <div className="app-main">
@@ -584,21 +617,20 @@ export default function App() {
                   onImportClick={() => fileInputRef.current?.click()}
                   onClearCache={() =>
                     setConfirmRequest({
-                      title: "Limpiar cache local",
-                      message:
-                        "Esto elimina la copia cifrada de este navegador. No borra Firestore.",
-                      confirmLabel: "Limpiar cache",
+                      title: t("backup.clearConfirmTitle"),
+                      message: t("backup.clearConfirmMessage"),
+                      confirmLabel: t("backup.clearConfirm"),
                       variant: "danger",
                       onConfirm: () => {
                         if (user) clearCachedBlocks(user.uid);
                         setSync({
                           status: "idle",
-                          message: "Cache local cifrada limpiada",
+                          message: t("sync.cacheCleared"),
                         });
                         pushToast(
                           "info",
-                          "Cache limpiada",
-                          "Se elimino la copia cifrada local.",
+                          t("toast.cacheTitle"),
+                          t("toast.cacheMessage"),
                         );
                       },
                     })
@@ -622,14 +654,15 @@ export default function App() {
             </Container>
           </div>
         </div>
-      </MoneyFormatContext.Provider>
-      <ConfirmModal
-        request={confirmRequest}
-        onCancel={() => setConfirmRequest(null)}
-        onConfirm={runConfirmedAction}
-      />
-      {toastLayer}
-    </>
+        </MoneyFormatContext.Provider>
+        <ConfirmModal
+          request={confirmRequest}
+          onCancel={() => setConfirmRequest(null)}
+          onConfirm={runConfirmedAction}
+        />
+        {toastLayer}
+      </>
+    </LanguageContext.Provider>
   );
 }
 
@@ -644,6 +677,7 @@ function AuthShell({
   children: ReactNode;
   userName?: string;
 }) {
+  const t = useT();
   return (
     <main className="auth-screen">
       <Card className="auth-card shadow-lg border-0">
@@ -655,15 +689,15 @@ function AuthShell({
             <div className="min-w-0">
               <strong className="d-block fs-5">Robbyte eWallet</strong>
               <span className="text-secondary">
-                {userName ? `Sesion: ${userName}` : "Vault financiero cifrado"}
+                {userName ? `${t("auth.session")}: ${userName}` : t("auth.vault")}
               </span>
             </div>
           </div>
           <Alert variant="primary" className="d-flex gap-3 align-items-start">
             <Icon name="cash-coin" className="fs-2" />
             <div>
-              <strong className="d-block">Datos cifrados antes de Firestore</strong>
-              <span>Google autentica. Tu navegador cifra y descifra.</span>
+              <strong className="d-block">{t("auth.encryptionTitle")}</strong>
+              <span>{t("auth.encryptionText")}</span>
             </div>
           </Alert>
           {children}
@@ -693,6 +727,7 @@ function DesktopSidebar({
   view: AppView;
   onSelect: (view: AppView) => void;
 }) {
+  const t = useT();
   return (
     <aside className="app-sidebar d-none d-lg-flex">
       <div className="app-sidebar-brand">
@@ -701,7 +736,7 @@ function DesktopSidebar({
         </div>
         <div className="min-w-0">
           <strong className="d-block text-white">Robbyte eWallet</strong>
-          <span className="text-white-50 small">Finanzas personales</span>
+          <span className="text-white-50 small">{t("app.personalFinance")}</span>
         </div>
       </div>
       <Nav className="app-sidebar-nav">
@@ -712,7 +747,7 @@ function DesktopSidebar({
             className={`app-sidebar-link ${item.id === view ? "active" : ""}`}
             onClick={() => onSelect(item.id)}
           >
-            <Icon name={item.icon} /> {item.label}
+            <Icon name={item.icon} /> {t(item.labelKey)}
           </Button>
         ))}
       </Nav>
@@ -731,6 +766,7 @@ function MobileNavbar({
   onToggle: (open: boolean) => void;
   onSelect: (view: AppView) => void;
 }) {
+  const t = useT();
   const current = views.find((item) => item.id === view);
   return (
     <Navbar bg="dark" variant="dark" className="app-mobile-nav d-lg-none shadow-sm">
@@ -741,21 +777,21 @@ function MobileNavbar({
           </span>
           <span className="mobile-brand-copy">
             <strong>Robbyte eWallet</strong>
-            <small>Finanzas personales</small>
+            <small>{t("app.personalFinance")}</small>
           </span>
         </Navbar.Brand>
         <div className="app-mobile-current d-none d-sm-flex">
           <Icon name={current?.icon || "speedometer2"} />
-          <span>{current?.label}</span>
+          <span>{current ? t(current.labelKey) : ""}</span>
         </div>
         <Button
           variant="outline-light"
           className="app-menu-toggle"
-          aria-label="Abrir menu de secciones"
+          aria-label={t("common.openSections")}
           onClick={() => onToggle(true)}
         >
           <Icon name="list" className="fs-4" />
-          <span className="d-none d-sm-inline">Menu</span>
+          <span className="d-none d-sm-inline">{t("common.menu")}</span>
         </Button>
         <Offcanvas
           show={open}
@@ -768,7 +804,7 @@ function MobileNavbar({
               <span className="mobile-brand-mark">
                 <Icon name="piggy-bank" />
               </span>
-              Secciones
+              {t("common.sections")}
             </Offcanvas.Title>
           </Offcanvas.Header>
           <Offcanvas.Body>
@@ -780,7 +816,7 @@ function MobileNavbar({
                   className={`app-offcanvas-link ${item.id === view ? "active" : ""}`}
                   onClick={() => onSelect(item.id)}
                 >
-                  <Icon name={item.icon} /> {item.label}
+                  <Icon name={item.icon} /> {t(item.labelKey)}
                 </Button>
               ))}
             </Nav>
@@ -798,6 +834,8 @@ function Header({
   sync: SyncState;
   onLogout: () => void;
 }) {
+  const t = useT();
+  const { locale } = useLanguage();
   const variant =
     sync.status === "error"
       ? "danger"
@@ -819,8 +857,8 @@ function Header({
         </Badge>
         {sync.lastSavedAt && (
           <span className="d-block d-sm-inline ms-sm-2 mt-2 mt-sm-0 text-secondary small">
-            Ultimo guardado:{" "}
-            {new Date(sync.lastSavedAt).toLocaleTimeString("es-PE", {
+            {t("common.lastSaved")}:{" "}
+            {new Date(sync.lastSavedAt).toLocaleTimeString(locale, {
               hour: "2-digit",
               minute: "2-digit",
             })}
@@ -828,7 +866,7 @@ function Header({
         )}
       </div>
       <Button variant="outline-secondary" onClick={onLogout}>
-        <Icon name="box-arrow-right" /> Salir
+        <Icon name="box-arrow-right" /> {t("common.logout")}
       </Button>
     </header>
   );
@@ -846,6 +884,7 @@ function Dashboard({
   alerts: ReturnType<typeof getUpcomingAlerts>;
 }) {
   const money = useMoney();
+  const t = useT();
   const selectedCurrency = getCurrencyOption(
     data.settings.currency,
     data.settings.currencyCountry,
@@ -854,26 +893,26 @@ function Dashboard({
   return (
     <section className="view-stack">
       <ViewTitle
-        title="Dashboard financiero"
-        subtitle="Resumen del mes actual y compromisos pendientes."
+        title={t("dashboard.title")}
+        subtitle={t("dashboard.subtitle")}
       />
 
       <Row xs={1} md={2} xl={4} className="g-3">
         <Col>
-          <MetricCard label="Ingreso mensual" value={money(report.income)} />
+          <MetricCard label={t("dashboard.monthlyIncome")} value={money(report.income)} />
         </Col>
         <Col>
-          <MetricCard label="Gastos fijos" value={money(report.fixedExpenses)} />
+          <MetricCard label={t("dashboard.fixedExpenses")} value={money(report.fixedExpenses)} />
         </Col>
         <Col>
           <MetricCard
-            label="Tarjetas y prestamos"
+            label={t("dashboard.cardsAndLoans")}
             value={money(report.cardPayments + report.loanPayments)}
           />
         </Col>
         <Col>
           <MetricCard
-            label="Disponible real"
+            label={t("dashboard.realAvailable")}
             value={money(report.available)}
             accent={report.available >= 0 ? "positive" : "negative"}
           />
@@ -884,10 +923,10 @@ function Dashboard({
         <Col>
           <Card className="h-100 shadow-sm">
             <Card.Body>
-              <SectionTitle title="Alertas" count={alerts.length} />
+              <SectionTitle title={t("dashboard.alerts")} count={alerts.length} />
               <PaymentList
                 dues={alerts}
-                emptyText="No hay vencimientos proximos."
+                emptyText={t("dashboard.noAlerts")}
                 showStatus
               />
             </Card.Body>
@@ -897,12 +936,12 @@ function Dashboard({
           <Card className="h-100 shadow-sm">
             <Card.Body>
               <SectionTitle
-                title="Compromisos"
+                title={t("dashboard.commitments")}
                 count={dues.filter((due) => due.status !== "paid").length}
               />
               <PaymentList
                 dues={dues.slice(0, 8)}
-                emptyText="Agrega gastos, prestamos o tarjetas."
+                emptyText={t("dashboard.noCommitments")}
               />
             </Card.Body>
           </Card>
@@ -912,14 +951,14 @@ function Dashboard({
       <Card className="shadow-sm">
         <Card.Body>
           <SectionTitle
-            title="Distribucion mensual"
+            title={t("dashboard.distribution")}
             count={`${selectedCurrency.country} - ${selectedCurrency.currency}`}
           />
           <div className="d-grid gap-3">
-            <BudgetBar label="Fijos" value={report.fixedExpenses} max={report.income} />
-            <BudgetBar label="Variables" value={report.variableExpenses} max={report.income} />
-            <BudgetBar label="Prestamos" value={report.loanPayments} max={report.income} />
-            <BudgetBar label="Tarjetas" value={report.cardPayments} max={report.income} />
+            <BudgetBar label={t("budget.fixed")} value={report.fixedExpenses} max={report.income} />
+            <BudgetBar label={t("budget.variable")} value={report.variableExpenses} max={report.income} />
+            <BudgetBar label={t("budget.loans")} value={report.loanPayments} max={report.income} />
+            <BudgetBar label={t("budget.cards")} value={report.cardPayments} max={report.income} />
           </div>
         </Card.Body>
       </Card>
@@ -937,6 +976,8 @@ function ExpensesView({
   confirm: (options: ConfirmOptions) => void;
 }) {
   const money = useMoney();
+  const t = useT();
+  const { language } = useLanguage();
 
   const addExpense = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -967,40 +1008,30 @@ function ExpensesView({
 
   return (
     <section className="view-stack">
-      <ViewTitle title="Gastos" subtitle="Gastos fijos, variables y pagos puntuales." />
+      <ViewTitle title={t("expenses.title")} subtitle={t("expenses.subtitle")} />
       <Card className="shadow-sm">
         <Card.Body>
           <Form onSubmit={addExpense}>
             <Row xs={1} md={2} xl={4} className="g-3 align-items-end">
               <Col>
                 <Form.Group>
-                  <Form.Label>Nombre</Form.Label>
-                  <Form.Control name="name" required placeholder="Luz, mercado, taxi" />
+                  <Form.Label>{t("expenses.name")}</Form.Label>
+                  <Form.Control name="name" required placeholder={t("placeholder.expenseName")} />
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Monto</Form.Label>
+                  <Form.Label>{t("expenses.amount")}</Form.Label>
                   <Form.Control name="amount" required min="0" step="0.01" type="number" />
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Categoria</Form.Label>
+                  <Form.Label>{t("expenses.category")}</Form.Label>
                   <Form.Select name="category" defaultValue="Servicios">
                     {expenseCategories.map((category) => (
-                      <option key={category}>{category}</option>
-                    ))}
-                  </Form.Select>
-                </Form.Group>
-              </Col>
-              <Col>
-                <Form.Group>
-                  <Form.Label>Ambito</Form.Label>
-                  <Form.Select name="priority" defaultValue="essential">
-                    {expensePriorities.map((priority) => (
-                      <option key={priority.value} value={priority.value}>
-                        {priority.label}
+                      <option key={category} value={category}>
+                        {localizeDataLabel(category, language)}
                       </option>
                     ))}
                   </Form.Select>
@@ -1008,53 +1039,67 @@ function ExpensesView({
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Metodo de pago</Form.Label>
-                  <Form.Select name="paymentMethod" defaultValue="Transferencia">
-                    {paymentMethods.map((method) => (
-                      <option key={method}>{method}</option>
+                  <Form.Label>{t("expenses.scope")}</Form.Label>
+                  <Form.Select name="priority" defaultValue="essential">
+                    {expensePriorities.map((priority) => (
+                      <option key={priority.value} value={priority.value}>
+                        {expensePriorityLabel(priority.value, t)}
+                      </option>
                     ))}
                   </Form.Select>
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Tipo</Form.Label>
+                  <Form.Label>{t("expenses.paymentMethod")}</Form.Label>
+                  <Form.Select name="paymentMethod" defaultValue="Transferencia">
+                    {paymentMethods.map((method) => (
+                      <option key={method} value={method}>
+                        {localizeDataLabel(method, language)}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col>
+                <Form.Group>
+                  <Form.Label>{t("expenses.type")}</Form.Label>
                   <Form.Select name="kind" defaultValue="fixed">
-                    <option value="fixed">Fijo</option>
-                    <option value="variable">Variable</option>
+                    <option value="fixed">{t("expenseKind.fixed")}</option>
+                    <option value="variable">{t("expenseKind.variable")}</option>
                   </Form.Select>
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Frecuencia</Form.Label>
+                  <Form.Label>{t("expenses.frequency")}</Form.Label>
                   <Form.Select name="frequency" defaultValue="monthly">
-                    <option value="monthly">Mensual</option>
-                    <option value="once">Unico</option>
+                    <option value="monthly">{t("frequency.monthly")}</option>
+                    <option value="once">{t("frequency.once")}</option>
                   </Form.Select>
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Dia vencimiento</Form.Label>
+                  <Form.Label>{t("expenses.dueDay")}</Form.Label>
                   <Form.Control name="dueDay" min="1" max="31" type="number" defaultValue="15" />
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Fecha unica</Form.Label>
+                  <Form.Label>{t("expenses.onceDate")}</Form.Label>
                   <Form.Control name="date" type="date" defaultValue={todayIso()} />
                 </Form.Group>
               </Col>
               <Col xl={8}>
                 <Form.Group>
-                  <Form.Label>Notas</Form.Label>
-                  <Form.Control name="notes" placeholder="Detalle opcional" />
+                  <Form.Label>{t("expenses.notes")}</Form.Label>
+                  <Form.Control name="notes" placeholder={t("placeholder.optionalDetail")} />
                 </Form.Group>
               </Col>
               <Col>
                 <Button type="submit" variant="primary" className="w-100">
-                  <Icon name="plus-lg" /> Agregar gasto
+                  <Icon name="plus-lg" /> {t("expenses.add")}
                 </Button>
               </Col>
             </Row>
@@ -1064,7 +1109,7 @@ function ExpensesView({
 
       <Card className="shadow-sm">
         <Card.Body>
-          <SectionTitle title="Registros" count={data.expenses.length} />
+          <SectionTitle title={t("expenses.records")} count={data.expenses.length} />
           <ListGroup variant="flush">
             {data.expenses.map((expense) => (
               <ListGroup.Item
@@ -1074,17 +1119,17 @@ function ExpensesView({
                 <div className="min-w-0">
                   <strong className="d-block">{expense.name}</strong>
                   <span className="text-secondary">
-                    {expense.category} · {expense.kind === "fixed" ? "Fijo" : "Variable"}
+                    {localizeDataLabel(expense.category, language)} - {expense.kind === "fixed" ? t("expenseKind.fixed") : t("expenseKind.variable")}
                   </span>
                   <div className="d-flex flex-wrap gap-1 mt-1">
                     {expense.priority && (
                       <Badge bg="light" text="dark">
-                        {expensePriorityLabel(expense.priority)}
+                        {expensePriorityLabel(expense.priority, t)}
                       </Badge>
                     )}
                     {expense.paymentMethod && (
                       <Badge bg="light" text="dark">
-                        {expense.paymentMethod}
+                        {localizeDataLabel(expense.paymentMethod, language)}
                       </Badge>
                     )}
                   </div>
@@ -1100,7 +1145,7 @@ function ExpensesView({
                   <Button
                     variant="outline-success"
                     size="sm"
-                    title="Cambiar pagado"
+                    title={t("expenses.togglePaid")}
                     onClick={() =>
                       updateData((current) => ({
                         ...current,
@@ -1117,12 +1162,12 @@ function ExpensesView({
                   <Button
                     variant="outline-danger"
                     size="sm"
-                    title="Eliminar"
+                    title={t("common.delete")}
                     onClick={() =>
                       confirm({
-                        title: "Eliminar gasto",
-                        message: `Se eliminara "${expense.name}".`,
-                        confirmLabel: "Eliminar",
+                        title: t("expenses.deleteTitle"),
+                        message: `${t("expenses.deleteMessage")} "${expense.name}".`,
+                        confirmLabel: t("common.delete"),
                         variant: "danger",
                         onConfirm: () =>
                           updateData((current) => ({
@@ -1140,7 +1185,7 @@ function ExpensesView({
               </ListGroup.Item>
             ))}
           </ListGroup>
-          {data.expenses.length === 0 && <EmptyState text="Sin gastos registrados." />}
+          {data.expenses.length === 0 && <EmptyState text={t("expenses.empty")} />}
         </Card.Body>
       </Card>
     </section>
@@ -1157,6 +1202,8 @@ function LoansView({
   confirm: (options: ConfirmOptions) => void;
 }) {
   const money = useMoney();
+  const t = useT();
+  const date = useDateFormatter();
 
   const addLoan = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1180,50 +1227,50 @@ function LoansView({
 
   return (
     <section className="view-stack">
-      <ViewTitle title="Prestamos" subtitle="Control de saldos, cuotas y vencimientos." />
+      <ViewTitle title={t("loans.title")} subtitle={t("loans.subtitle")} />
       <Card className="shadow-sm">
         <Card.Body>
           <Form onSubmit={addLoan}>
             <Row xs={1} md={2} xl={3} className="g-3 align-items-end">
               <Col>
                 <Form.Group>
-                  <Form.Label>Entidad</Form.Label>
-                  <Form.Control name="lender" required placeholder="Banco, familiar, fintech" />
+                  <Form.Label>{t("loans.entity")}</Form.Label>
+                  <Form.Control name="lender" required placeholder={t("placeholder.loanEntity")} />
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Principal</Form.Label>
+                  <Form.Label>{t("loans.principal")}</Form.Label>
                   <Form.Control name="principal" required min="0" step="0.01" type="number" />
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Saldo</Form.Label>
+                  <Form.Label>{t("loans.balance")}</Form.Label>
                   <Form.Control name="balance" required min="0" step="0.01" type="number" />
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Cuota mensual</Form.Label>
+                  <Form.Label>{t("loans.monthlyPayment")}</Form.Label>
                   <Form.Control name="monthlyPayment" required min="0" step="0.01" type="number" />
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Dia pago</Form.Label>
+                  <Form.Label>{t("loans.paymentDay")}</Form.Label>
                   <Form.Control name="dueDay" required min="1" max="31" type="number" defaultValue="20" />
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Proximo vencimiento</Form.Label>
+                  <Form.Label>{t("loans.nextDue")}</Form.Label>
                   <Form.Control name="nextDueDate" required type="date" defaultValue={todayIso()} />
                 </Form.Group>
               </Col>
               <Col xl={3}>
                 <Button type="submit" variant="primary" className="w-100">
-                  <Icon name="plus-lg" /> Agregar prestamo
+                  <Icon name="plus-lg" /> {t("loans.add")}
                 </Button>
               </Col>
             </Row>
@@ -1240,9 +1287,9 @@ function LoansView({
                   <Card.Title className="mb-0 text-break">{loan.lender}</Card.Title>
                   <StatusBadge status={loan.paidThisMonth ? "paid" : "due"} />
                 </div>
-                <StatPair label="Saldo" value={money(loan.balance)} />
-                <StatPair label="Cuota" value={money(loan.monthlyPayment)} />
-                <StatPair label="Vence" value={formatDate(loan.nextDueDate)} />
+                <StatPair label={t("loans.balance")} value={money(loan.balance)} />
+                <StatPair label={t("loans.monthlyPayment")} value={money(loan.monthlyPayment)} />
+                <StatPair label={t("loans.due")} value={date(loan.nextDueDate)} />
                 <div className="d-flex flex-wrap gap-2 mt-3">
                   <Button
                     variant="outline-success"
@@ -1263,15 +1310,15 @@ function LoansView({
                       }))
                     }
                   >
-                    <Icon name="check2" /> Pagado
+                    <Icon name="check2" /> {t("loans.markPaid")}
                   </Button>
                   <Button
                     variant="outline-danger"
                     onClick={() =>
                       confirm({
-                        title: "Eliminar prestamo",
-                        message: `Se eliminara "${loan.lender}".`,
-                        confirmLabel: "Eliminar",
+                        title: t("loans.deleteTitle"),
+                        message: `${t("delete.withName")} "${loan.lender}".`,
+                        confirmLabel: t("common.delete"),
                         variant: "danger",
                         onConfirm: () =>
                           updateData((current) => ({
@@ -1281,7 +1328,7 @@ function LoansView({
                       })
                     }
                   >
-                    <Icon name="trash" /> Eliminar
+                    <Icon name="trash" /> {t("common.delete")}
                   </Button>
                 </div>
               </Card.Body>
@@ -1290,7 +1337,7 @@ function LoansView({
         ))}
         {data.loans.length === 0 && (
           <Col>
-            <EmptyCard text="Sin prestamos registrados." />
+            <EmptyCard text={t("loans.empty")} />
           </Col>
         )}
       </Row>
@@ -1308,6 +1355,8 @@ function CardsView({
   confirm: (options: ConfirmOptions) => void;
 }) {
   const money = useMoney();
+  const t = useT();
+  const { language } = useLanguage();
 
   const addCard = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1353,8 +1402,8 @@ function CardsView({
   return (
     <section className="view-stack">
       <ViewTitle
-        title="Tarjetas"
-        subtitle="Limites, fechas de cierre, cuotas y pago mensual estimado."
+        title={t("cards.title")}
+        subtitle={t("cards.subtitle")}
       />
       <Card className="shadow-sm">
         <Card.Body>
@@ -1362,31 +1411,31 @@ function CardsView({
             <Row xs={1} md={2} xl={4} className="g-3 align-items-end">
               <Col>
                 <Form.Group>
-                  <Form.Label>Nombre</Form.Label>
-                  <Form.Control name="name" required placeholder="Visa BBVA" />
+                  <Form.Label>{t("cards.name")}</Form.Label>
+                  <Form.Control name="name" required placeholder={t("placeholder.cardName")} />
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Limite</Form.Label>
+                  <Form.Label>{t("cards.limit")}</Form.Label>
                   <Form.Control name="limit" required min="0" step="0.01" type="number" />
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Dia cierre</Form.Label>
+                  <Form.Label>{t("cards.closingDay")}</Form.Label>
                   <Form.Control name="closingDay" required min="1" max="31" type="number" defaultValue="25" />
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Dia pago</Form.Label>
+                  <Form.Label>{t("cards.paymentDay")}</Form.Label>
                   <Form.Control name="paymentDay" required min="1" max="31" type="number" defaultValue="5" />
                 </Form.Group>
               </Col>
               <Col>
                 <Button type="submit" variant="primary" className="w-100">
-                  <Icon name="plus-lg" /> Agregar tarjeta
+                  <Icon name="plus-lg" /> {t("cards.add")}
                 </Button>
               </Col>
             </Row>
@@ -1408,12 +1457,12 @@ function CardsView({
                     <Button
                       variant="outline-danger"
                       size="sm"
-                      title="Eliminar tarjeta"
+                      title={t("cards.deleteTitle")}
                       onClick={() =>
                         confirm({
-                          title: "Eliminar tarjeta",
-                          message: `Se eliminara "${card.name}" y sus compras.`,
-                          confirmLabel: "Eliminar",
+                          title: t("cards.deleteTitle"),
+                          message: `${t("cards.deleteMessage")}: "${card.name}".`,
+                          confirmLabel: t("common.delete"),
                           variant: "danger",
                           onConfirm: () =>
                             updateData((current) => ({
@@ -1427,20 +1476,20 @@ function CardsView({
                     </Button>
                   </div>
                   <StatPair
-                    label="Uso"
+                    label={t("cards.usage")}
                     value={`${money(used)} / ${money(card.limit)}`}
                   />
                   <ProgressBar now={usage} className="mb-3" />
-                  <StatPair label="Pago mensual" value={money(monthly)} />
-                  <StatPair label="Cierre / pago" value={`${card.closingDay} / ${card.paymentDay}`} />
+                  <StatPair label={t("cards.monthlyPayment")} value={money(monthly)} />
+                  <StatPair label={t("cards.closePayment")} value={`${card.closingDay} / ${card.paymentDay}`} />
 
                   <Form className="mt-3" onSubmit={(event) => addPurchase(event, card.id)}>
                     <Row xs={1} md={2} className="g-2 align-items-end">
                       <Col md={12}>
-                        <Form.Control name="description" required placeholder="Compra" />
+                        <Form.Control name="description" required placeholder={t("cards.purchase")} />
                       </Col>
                       <Col>
-                        <Form.Control name="amount" required min="0" step="0.01" type="number" placeholder="Monto" />
+                        <Form.Control name="amount" required min="0" step="0.01" type="number" placeholder={t("expenses.amount")} />
                       </Col>
                       <Col>
                         <Form.Control name="purchaseDate" required type="date" defaultValue={todayIso()} />
@@ -1451,13 +1500,15 @@ function CardsView({
                       <Col>
                         <Form.Select name="category" defaultValue="Compras">
                           {expenseCategories.map((category) => (
-                            <option key={category}>{category}</option>
+                            <option key={category} value={category}>
+                              {localizeDataLabel(category, language)}
+                            </option>
                           ))}
                         </Form.Select>
                       </Col>
                       <Col md={12}>
                         <Button type="submit" variant="primary" className="w-100">
-                          <Icon name="plus-lg" /> Compra
+                          <Icon name="plus-lg" /> {t("cards.purchase")}
                         </Button>
                       </Col>
                     </Row>
@@ -1472,7 +1523,7 @@ function CardsView({
                         <div className="min-w-0">
                           <strong className="d-block">{purchase.description}</strong>
                           <span className="text-secondary">
-                            {purchase.paidInstallments}/{purchase.installments} cuotas
+                            {purchase.paidInstallments}/{purchase.installments} {t("cards.installments")}
                           </span>
                         </div>
                         <div className="d-flex gap-2 align-items-center">
@@ -1480,7 +1531,7 @@ function CardsView({
                           <Button
                             variant="outline-success"
                             size="sm"
-                            title="Pagar cuota"
+                            title={t("cards.payInstallment")}
                             onClick={() =>
                               updateData((current) => ({
                                 ...current,
@@ -1518,7 +1569,7 @@ function CardsView({
         })}
         {data.cards.length === 0 && (
           <Col>
-            <EmptyCard text="Sin tarjetas registradas." />
+            <EmptyCard text={t("cards.empty")} />
           </Col>
         )}
       </Row>
@@ -1528,10 +1579,12 @@ function CardsView({
 
 function CalendarView({ dues }: { dues: ReturnType<typeof getPaymentDues> }) {
   const money = useMoney();
+  const t = useT();
+  const { locale } = useLanguage();
 
   return (
     <section className="view-stack">
-      <ViewTitle title="Calendario" subtitle="Vencimientos ordenados por fecha." />
+      <ViewTitle title={t("calendar.title")} subtitle={t("calendar.subtitle")} />
       <Card className="shadow-sm">
         <Card.Body>
           <ListGroup variant="flush">
@@ -1546,12 +1599,12 @@ function CalendarView({ dues }: { dues: ReturnType<typeof getPaymentDues> }) {
                     <div className="date-tile">
                       <strong>{date.getDate()}</strong>
                       <span>
-                        {new Intl.DateTimeFormat("es-PE", { month: "short" }).format(date)}
+                        {new Intl.DateTimeFormat(locale, { month: "short" }).format(date)}
                       </span>
                     </div>
                     <div className="min-w-0">
                       <strong className="d-block">{due.label}</strong>
-                      <span className="text-secondary">{due.source}</span>
+                      <span className="text-secondary">{sourceLabel(due.source, t)}</span>
                     </div>
                   </div>
                   <div className="d-flex flex-wrap gap-2 align-items-center">
@@ -1562,7 +1615,7 @@ function CalendarView({ dues }: { dues: ReturnType<typeof getPaymentDues> }) {
               );
             })}
           </ListGroup>
-          {dues.length === 0 && <EmptyState text="No hay vencimientos para mostrar." />}
+          {dues.length === 0 && <EmptyState text={t("calendar.empty")} />}
         </Card.Body>
       </Card>
     </section>
@@ -1577,23 +1630,27 @@ function ReportsView({
   report: ReturnType<typeof getMonthlyReport>;
 }) {
   const money = useMoney();
+  const t = useT();
   const expenseCategoryTotals = getExpenseCategoryTotals(data);
-  const expensePriorityTotals = getExpensePriorityTotals(data);
+  const expensePriorityTotals = getExpensePriorityTotals(data).map((item) => ({
+    ...item,
+    label: expensePriorityLabel(item.label as ExpensePriority, t),
+  }));
   const incomeCategoryTotals = getIncomeCategoryTotals(data);
 
   return (
     <section className="view-stack">
-      <ViewTitle title="Reportes" subtitle="Cierre mensual calculado desde tus registros." />
+      <ViewTitle title={t("reports.title")} subtitle={t("reports.subtitle")} />
       <Row xs={1} md={2} xl={4} className="g-3">
         <Col>
-          <MetricCard label="Mes" value={report.monthKey} />
+          <MetricCard label={t("reports.month")} value={report.monthKey} />
         </Col>
         <Col>
-          <MetricCard label="Ingreso" value={money(report.income)} />
+          <MetricCard label={t("reports.income")} value={money(report.income)} />
         </Col>
         <Col>
           <MetricCard
-            label="Total comprometido"
+            label={t("reports.totalCommitted")}
             value={money(
               report.fixedExpenses +
                 report.variableExpenses +
@@ -1603,43 +1660,43 @@ function ReportsView({
           />
         </Col>
         <Col>
-          <MetricCard label="Disponible" value={money(report.available)} />
+          <MetricCard label={t("reports.available")} value={money(report.available)} />
         </Col>
       </Row>
       <Card className="shadow-sm">
         <Card.Body>
           <SectionTitle
-            title="Detalle"
-            count={`${data.expenses.length + data.loans.length + data.cards.length} fuentes`}
+            title={t("reports.detail")}
+            count={`${data.expenses.length + data.loans.length + data.cards.length} ${t("common.sources")}`}
           />
           <div className="d-grid gap-2">
-            <ReportLine label="Gastos fijos" value={report.fixedExpenses} />
-            <ReportLine label="Gastos variables" value={report.variableExpenses} />
-            <ReportLine label="Cuotas de prestamos" value={report.loanPayments} />
-            <ReportLine label="Tarjetas de credito" value={report.cardPayments} />
+            <ReportLine label={t("reports.fixedExpenses")} value={report.fixedExpenses} />
+            <ReportLine label={t("reports.variableExpenses")} value={report.variableExpenses} />
+            <ReportLine label={t("reports.loanPayments")} value={report.loanPayments} />
+            <ReportLine label={t("reports.creditCards")} value={report.cardPayments} />
           </div>
         </Card.Body>
       </Card>
       <Row xs={1} lg={3} className="g-3">
         <Col>
           <AmountBreakdown
-            title="Gastos por categoria"
+            title={t("reports.expenseByCategory")}
             items={expenseCategoryTotals}
-            emptyText="Sin gastos categorizados."
+            emptyText={t("reports.noExpenseCategories")}
           />
         </Col>
         <Col>
           <AmountBreakdown
-            title="Gastos por ambito"
+            title={t("reports.expenseByScope")}
             items={expensePriorityTotals}
-            emptyText="Sin ambitos registrados."
+            emptyText={t("reports.noScopes")}
           />
         </Col>
         <Col>
           <AmountBreakdown
-            title="Ingresos por categoria"
+            title={t("reports.incomeByCategory")}
             items={incomeCategoryTotals}
-            emptyText="Sin ingresos categorizados."
+            emptyText={t("reports.noIncomeCategories")}
           />
         </Col>
       </Row>
@@ -1656,19 +1713,21 @@ function BackupView({
   onImportClick: () => void;
   onClearCache: () => void;
 }) {
+  const t = useT();
+
   return (
     <section className="view-stack">
       <ViewTitle
-        title="Backups"
-        subtitle="Exportacion e importacion manual en formato JSON cifrado."
+        title={t("backup.title")}
+        subtitle={t("backup.subtitle")}
       />
       <Row xs={1} md={3} className="g-3">
         <Col>
           <ActionCard
             icon="download"
-            title="Exportar respaldo"
-            text="Genera un JSON cifrado con la clave activa del vault."
-            buttonLabel="Exportar"
+            title={t("backup.exportTitle")}
+            text={t("backup.exportText")}
+            buttonLabel={t("common.export")}
             variant="primary"
             onClick={onExport}
           />
@@ -1676,9 +1735,9 @@ function BackupView({
         <Col>
           <ActionCard
             icon="upload"
-            title="Importar respaldo"
-            text="Reemplaza los datos actuales si el archivo puede descifrarse."
-            buttonLabel="Importar"
+            title={t("backup.importTitle")}
+            text={t("backup.importText")}
+            buttonLabel={t("common.import")}
             variant="outline-primary"
             onClick={onImportClick}
           />
@@ -1686,9 +1745,9 @@ function BackupView({
         <Col>
           <ActionCard
             icon="trash"
-            title="Limpiar cache"
-            text="Elimina la copia cifrada guardada en este navegador."
-            buttonLabel="Limpiar"
+            title={t("backup.clearTitle")}
+            text={t("backup.clearText")}
+            buttonLabel={t("common.clear")}
             variant="outline-danger"
             onClick={onClearCache}
           />
@@ -1708,18 +1767,23 @@ function SettingsView({
   confirm: (options: ConfirmOptions) => void;
 }) {
   const money = useMoney();
+  const t = useT();
+  const date = useDateFormatter();
   const selectedCurrency = getCurrencyOption(
     data.settings.currency,
     data.settings.currencyCountry,
   );
+  const selectedLanguage = getLanguageOption(data.settings.language);
 
   const saveSettings = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const selectedCurrencyId = toStringValue(form.get("currencyOption"));
+    const selectedLanguageCode = toStringValue(form.get("language")) as Language;
     const nextCurrency =
       currencyOptions.find((option) => option.id === selectedCurrencyId) ||
       selectedCurrency;
+    const nextLanguage = getLanguageOption(selectedLanguageCode);
 
     await updateData((current) => ({
       ...current,
@@ -1728,6 +1792,7 @@ function SettingsView({
         currency: nextCurrency.currency,
         currencyCountry: nextCurrency.countryCode,
         currencyLocale: nextCurrency.locale,
+        language: nextLanguage.code,
         monthlyIncome: toNumber(form.get("monthlyIncome")),
         alertDaysBefore: toNumber(form.get("alertDaysBefore")),
       },
@@ -1755,14 +1820,27 @@ function SettingsView({
 
   return (
     <section className="view-stack">
-      <ViewTitle title="Ajustes" subtitle="Ingreso base, alertas e ingresos adicionales." />
+      <ViewTitle title={t("settings.title")} subtitle={t("settings.subtitle")} />
       <Card className="shadow-sm">
         <Card.Body>
+          <SectionTitle title={t("settings.preferences")} count={selectedLanguage.label} />
           <Form onSubmit={saveSettings}>
-            <Row xs={1} md={3} className="g-3 align-items-end">
+            <Row xs={1} md={2} xl={4} className="g-3 align-items-end">
+              <Col md={6} xl={3}>
+                <Form.Group>
+                  <Form.Label>{t("settings.language")}</Form.Label>
+                  <Form.Select name="language" defaultValue={selectedLanguage.code}>
+                    {languageOptions.map((option) => (
+                      <option key={option.code} value={option.code}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
               <Col md={6} xl={4}>
                 <Form.Group>
-                  <Form.Label>Moneda principal</Form.Label>
+                  <Form.Label>{t("settings.mainCurrency")}</Form.Label>
                   <Form.Select
                     name="currencyOption"
                     defaultValue={selectedCurrency.id}
@@ -1774,14 +1852,14 @@ function SettingsView({
                     ))}
                   </Form.Select>
                   <Form.Text>
-                    Pais: {selectedCurrency.country} · Moneda:{" "}
+                    {t("common.country")}: {selectedCurrency.country} - {t("common.currency")}:{" "}
                     {selectedCurrency.currencyName} ({selectedCurrency.currency})
                   </Form.Text>
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Ingreso mensual base</Form.Label>
+                  <Form.Label>{t("settings.baseIncome")}</Form.Label>
                   <Form.Control
                     name="monthlyIncome"
                     required
@@ -1794,7 +1872,7 @@ function SettingsView({
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Dias de alerta</Form.Label>
+                  <Form.Label>{t("settings.alertDays")}</Form.Label>
                   <Form.Control
                     name="alertDaysBefore"
                     required
@@ -1807,7 +1885,7 @@ function SettingsView({
               </Col>
               <Col>
                 <Button type="submit" variant="primary" className="w-100">
-                  <Icon name="check2" /> Guardar ajustes
+                  <Icon name="check2" /> {t("common.saveSettings")}
                 </Button>
               </Col>
             </Row>
@@ -1821,44 +1899,46 @@ function SettingsView({
             <Row xs={1} md={2} xl={5} className="g-3 align-items-end">
               <Col>
                 <Form.Group>
-                  <Form.Label>Fuente</Form.Label>
-                  <Form.Control name="source" required placeholder="Freelance, bono, renta" />
+                  <Form.Label>{t("settings.incomeSource")}</Form.Label>
+                  <Form.Control name="source" required placeholder={t("settings.incomeSourcePlaceholder")} />
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Monto</Form.Label>
+                  <Form.Label>{t("expenses.amount")}</Form.Label>
                   <Form.Control name="amount" required min="0" step="0.01" type="number" />
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Categoria</Form.Label>
+                  <Form.Label>{t("settings.incomeCategory")}</Form.Label>
                   <Form.Select name="category" defaultValue="Salario">
                     {incomeCategories.map((category) => (
-                      <option key={category}>{category}</option>
+                      <option key={category} value={category}>
+                        {localizeDataLabel(category, selectedLanguage.code)}
+                      </option>
                     ))}
                   </Form.Select>
                 </Form.Group>
               </Col>
               <Col>
                 <Form.Group>
-                  <Form.Label>Fecha</Form.Label>
+                  <Form.Label>{t("settings.incomeDate")}</Form.Label>
                   <Form.Control name="date" required type="date" defaultValue={todayIso()} />
                 </Form.Group>
               </Col>
               <Col xl={2}>
                 <Form.Group>
-                  <Form.Label>Notas</Form.Label>
-                  <Form.Control name="notes" placeholder="Detalle opcional" />
+                  <Form.Label>{t("settings.incomeNotes")}</Form.Label>
+                  <Form.Control name="notes" placeholder={t("settings.incomeNotesPlaceholder")} />
                 </Form.Group>
               </Col>
               <Col>
-                <Form.Check name="recurring" type="checkbox" label="Recurrente" />
+                <Form.Check name="recurring" type="checkbox" label={t("common.recurring")} />
               </Col>
               <Col>
                 <Button type="submit" variant="primary" className="w-100">
-                  <Icon name="plus-lg" /> Agregar ingreso
+                  <Icon name="plus-lg" /> {t("settings.addIncome")}
                 </Button>
               </Col>
             </Row>
@@ -1868,7 +1948,7 @@ function SettingsView({
 
       <Card className="shadow-sm">
         <Card.Body>
-          <SectionTitle title="Ingresos" count={data.incomes.length} />
+          <SectionTitle title={t("settings.incomes")} count={data.incomes.length} />
           <ListGroup variant="flush">
             {data.incomes.map((income) => (
               <ListGroup.Item
@@ -1878,8 +1958,10 @@ function SettingsView({
                 <div className="min-w-0">
                   <strong className="d-block">{income.source}</strong>
                   <span className="text-secondary">
-                    {income.category || "Sin categoria"} ·{" "}
-                    {income.recurring ? "Recurrente" : formatDate(income.date)}
+                    {income.category
+                      ? localizeDataLabel(income.category, selectedLanguage.code)
+                      : t("common.noCategory")} -{" "}
+                    {income.recurring ? t("common.recurring") : date(income.date)}
                   </span>
                   {income.notes && (
                     <span className="d-block text-secondary small">{income.notes}</span>
@@ -1890,12 +1972,12 @@ function SettingsView({
                   <Button
                     variant="outline-danger"
                     size="sm"
-                    title="Eliminar ingreso"
+                    title={t("settings.deleteIncomeTitle")}
                     onClick={() =>
                       confirm({
-                        title: "Eliminar ingreso",
-                        message: `Se eliminara "${income.source}".`,
-                        confirmLabel: "Eliminar",
+                        title: t("settings.deleteIncomeTitle"),
+                        message: `${t("settings.deleteIncomeMessage")} "${income.source}".`,
+                        confirmLabel: t("common.delete"),
                         variant: "danger",
                         onConfirm: () =>
                           updateData((current) => ({
@@ -1911,18 +1993,36 @@ function SettingsView({
               </ListGroup.Item>
             ))}
           </ListGroup>
-          {data.incomes.length === 0 && <EmptyState text="Sin ingresos registrados." />}
+          {data.incomes.length === 0 && <EmptyState text={t("settings.noIncomes")} />}
         </Card.Body>
       </Card>
     </section>
   );
 }
 
-function expensePriorityLabel(priority: ExpensePriority) {
-  return (
-    expensePriorities.find((item) => item.value === priority)?.label ||
-    "Sin ambito"
-  );
+function expensePriorityLabel(
+  priority: ExpensePriority,
+  t: (key: TranslationKey) => string,
+) {
+  const labels: Record<ExpensePriority, TranslationKey> = {
+    essential: "priority.essential",
+    lifestyle: "priority.lifestyle",
+    savings: "priority.savings",
+    debt: "priority.debt",
+  };
+  return labels[priority] ? t(labels[priority]) : t("common.noScope");
+}
+
+function sourceLabel(
+  source: PaymentDue["source"],
+  t: (key: TranslationKey) => string,
+) {
+  const labels: Record<PaymentDue["source"], TranslationKey> = {
+    expense: "source.expense",
+    loan: "source.loan",
+    card: "source.card",
+  };
+  return t(labels[source]);
 }
 
 function AmountBreakdown({
@@ -1935,6 +2035,7 @@ function AmountBreakdown({
   emptyText: string;
 }) {
   const money = useMoney();
+  const { language } = useLanguage();
   const max = Math.max(...items.map((item) => item.amount), 0);
   return (
     <Card className="h-100 shadow-sm">
@@ -1947,7 +2048,9 @@ function AmountBreakdown({
             {items.map((item) => (
               <div key={item.label}>
                 <div className="d-flex justify-content-between gap-3 mb-1">
-                  <span className="text-secondary">{item.label}</span>
+                  <span className="text-secondary">
+                    {localizeDataLabel(item.label, language)}
+                  </span>
                   <strong>{money(item.amount)}</strong>
                 </div>
                 <ProgressBar now={max > 0 ? (item.amount / max) * 100 : 0} />
@@ -2003,6 +2106,8 @@ function PaymentList({
   showStatus?: boolean;
 }) {
   const money = useMoney();
+  const t = useT();
+  const date = useDateFormatter();
 
   if (dues.length === 0) return <EmptyState text={emptyText} />;
   return (
@@ -2015,7 +2120,7 @@ function PaymentList({
           <div className="min-w-0">
             <strong className="d-block">{due.label}</strong>
             <span className="text-secondary">
-              {due.source} · {formatDate(due.dueDate)}
+              {sourceLabel(due.source, t)} - {date(due.dueDate)}
             </span>
           </div>
           <div className="d-flex flex-wrap align-items-center gap-2 justify-content-sm-end">
@@ -2029,17 +2134,18 @@ function PaymentList({
 }
 
 function StatusBadge({ status }: { status: "paid" | "due" | "overdue" }) {
-  const labels = {
-    paid: "Pagado",
-    due: "Pendiente",
-    overdue: "Vencido",
+  const t = useT();
+  const labels: Record<"paid" | "due" | "overdue", TranslationKey> = {
+    paid: "common.paid",
+    due: "common.due",
+    overdue: "common.overdue",
   };
   const variants = {
     paid: "success",
     due: "warning",
     overdue: "danger",
   };
-  return <Badge bg={variants[status]}>{labels[status]}</Badge>;
+  return <Badge bg={variants[status]}>{t(labels[status])}</Badge>;
 }
 
 function ReportLine({ label, value }: { label: string; value: number }) {
@@ -2138,6 +2244,8 @@ function ConfirmModal({
   onCancel: () => void;
   onConfirm: () => Promise<void>;
 }) {
+  const t = useT();
+
   return (
     <Modal show={Boolean(request)} onHide={onCancel} centered>
       <Modal.Header closeButton>
@@ -2146,10 +2254,10 @@ function ConfirmModal({
       <Modal.Body>{request?.message}</Modal.Body>
       <Modal.Footer>
         <Button variant="outline-secondary" onClick={onCancel}>
-          Cancelar
+          {t("common.cancel")}
         </Button>
         <Button variant={request?.variant || "danger"} onClick={onConfirm}>
-          {request?.confirmLabel || "Confirmar"}
+          {request?.confirmLabel || t("common.confirm")}
         </Button>
       </Modal.Footer>
     </Modal>

@@ -17,8 +17,8 @@ export const formatCurrency = (
   }
 };
 
-export const formatDate = (date: string) =>
-  new Intl.DateTimeFormat("es-PE", {
+export const formatDate = (date: string, locale = "es-PE") =>
+  new Intl.DateTimeFormat(locale, {
     day: "2-digit",
     month: "short",
     year: "numeric",

@@ -1,5 +1,7 @@
 export type Currency = string;
 
+export type Language = "es" | "en" | "pt";
+
 export type ExpenseKind = "fixed" | "variable";
 
 export type Frequency = "monthly" | "once";
@@ -10,6 +12,7 @@ export interface UserSettings {
   currency: Currency;
   currencyCountry?: string;
   currencyLocale?: string;
+  language?: Language;
   monthlyIncome: number;
   alertDaysBefore: number;
 }

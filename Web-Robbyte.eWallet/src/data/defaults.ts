@@ -5,6 +5,7 @@ export const defaultAppData: AppData = {
     currency: "PEN",
     currencyCountry: "PE",
     currencyLocale: "es-PE",
+    language: "es",
     monthlyIncome: 0,
     alertDaysBefore: 5,
   },
