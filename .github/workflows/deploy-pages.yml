@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+﻿name: Deploy to GitHub Pages
 
 on:
   push:
@@ -26,14 +26,17 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          working-directory: Web-Robbyte.eWallet
       - name: Install dependencies
         run: npm ci
+        working-directory: Web-Robbyte.eWallet
       - name: Build
         run: npm run build
+        working-directory: Web-Robbyte.eWallet
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: Web-Robbyte.eWallet/dist
 
   deploy:
     environment:
