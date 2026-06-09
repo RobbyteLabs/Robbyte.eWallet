@@ -575,16 +575,21 @@ export default function App() {
       <>
         <MoneyFormatContext.Provider value={moneyFormat}>
         <div className="app-shell">
-          <DesktopSidebar view={view} onSelect={selectView} />
+          <DesktopSidebar
+            view={view}
+            onSelect={selectView}
+            onLogout={handleLogout}
+          />
           <div className="app-main">
             <MobileNavbar
               view={view}
               open={menuOpen}
               onToggle={setMenuOpen}
               onSelect={selectView}
+              onLogout={handleLogout}
             />
             <Container fluid className="app-content">
-              <Header sync={sync} onLogout={handleLogout} />
+              <Header sync={sync} />
               {view === "dashboard" && (
                 <Dashboard data={data} report={report} dues={dues} alerts={alerts} />
               )}
@@ -719,13 +724,14 @@ function CenteredStatus({ label }: { label: string }) {
     </main>
   );
 }
-
 function DesktopSidebar({
   view,
   onSelect,
+  onLogout,
 }: {
   view: AppView;
   onSelect: (view: AppView) => void;
+  onLogout: () => void;
 }) {
   const t = useT();
   return (
@@ -751,6 +757,15 @@ function DesktopSidebar({
           </Button>
         ))}
       </Nav>
+      <div className="app-sidebar-footer">
+        <Button
+          variant="link"
+          className="app-sidebar-link app-sidebar-logout"
+          onClick={onLogout}
+        >
+          <Icon name="box-arrow-right" /> {t("common.logout")}
+        </Button>
+      </div>
     </aside>
   );
 }
@@ -760,11 +775,13 @@ function MobileNavbar({
   open,
   onToggle,
   onSelect,
+  onLogout,
 }: {
   view: AppView;
   open: boolean;
   onToggle: (open: boolean) => void;
   onSelect: (view: AppView) => void;
+  onLogout: () => void;
 }) {
   const t = useT();
   const current = views.find((item) => item.id === view);
@@ -807,7 +824,7 @@ function MobileNavbar({
               {t("common.sections")}
             </Offcanvas.Title>
           </Offcanvas.Header>
-          <Offcanvas.Body>
+          <Offcanvas.Body className="app-offcanvas-body">
             <Nav className="app-offcanvas-nav">
               {views.map((item) => (
                 <Button
@@ -820,6 +837,15 @@ function MobileNavbar({
                 </Button>
               ))}
             </Nav>
+            <div className="app-offcanvas-footer">
+              <Button
+                variant="link"
+                className="app-offcanvas-link app-offcanvas-logout"
+                onClick={onLogout}
+              >
+                <Icon name="box-arrow-right" /> {t("common.logout")}
+              </Button>
+            </div>
           </Offcanvas.Body>
         </Offcanvas>
       </Container>
@@ -829,10 +855,8 @@ function MobileNavbar({
 
 function Header({
   sync,
-  onLogout,
 }: {
   sync: SyncState;
-  onLogout: () => void;
 }) {
   const t = useT();
   const { locale } = useLanguage();
@@ -865,9 +889,6 @@ function Header({
           </span>
         )}
       </div>
-      <Button variant="outline-secondary" onClick={onLogout}>
-        <Icon name="box-arrow-right" /> {t("common.logout")}
-      </Button>
     </header>
   );
 }
@@ -2292,4 +2313,5 @@ function ToastLayer({
     </ToastContainer>
   );
 }
+
 
