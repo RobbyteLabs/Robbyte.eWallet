@@ -125,3 +125,25 @@ export type AppView =
   | "reports"
   | "backup"
   | "settings";
+
+
+export interface ConfirmOptions {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  variant?: 'primary' | 'danger' | 'warning';
+  onConfirm: () => Promise<void> | void;
+}
+
+export interface ExpenseCategoryTotal {
+  label: string;
+  amount: number;
+  icon: string;
+  color: string;
+}
+
+
+export type TranslationKey = string;
+
+
+// Used by i18n for translation keys

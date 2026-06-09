@@ -1,57 +1,4 @@
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-import { Alert, Button, Container, Form } from "react-bootstrap";
-import type { User } from "firebase/auth";
-import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
-import { Icon } from "./components/layout/Icon";
-
-import { defaultAppData } from './data/defaults';
-import { getMonthlyReport, getPaymentDues, getUpcomingAlerts } from './lib/calculations';
-import { deriveEncryptionKey, encryptedBackupName, generateSalt } from './lib/crypto';
-import { auth, googleProvider } from "./lib/firebase";
-import { todayIso } from './lib/format';
-
-import { translate, type TranslationKey, getLanguageOption } from './lib/i18n';
-import { createId } from './lib/ids';
-import {
-  cacheEncryptedBlocks, clearCachedBlocks, decryptAppData,
-  encryptAppData, hasAnyRemoteData, loadCachedBlocks, loadRemoteBlocks, saveRemoteBlocks,
-} from './lib/storage';
-import type { EncryptedAppBlocks } from "./lib/storage";
-
-import type { AppData, AppView, SyncState, ConfirmOptions } from './types';
-
-import { MoneyFormatContext, LanguageContext, useMoney, useT, useDateFormatter } from "./contexts";
-import { views, initialSync, readFirstSalt, toNumber, toStringValue, authErrorMessage, getCurrencyOption } from "./utils";
-
-import { AuthShell } from "./components/layout/AuthShell";
-import { CenteredStatus } from "./components/layout/CenteredStatus";
-import { DesktopSidebar } from "./components/layout/DesktopSidebar";
-import { MobileNavbar } from "./components/layout/MobileNavbar";
-import { Header } from "./components/layout/Header";
-
-import { Dashboard } from "./components/views/Dashboard";
-import { ExpensesView } from "./components/views/ExpensesView";
-import { LoansView } from "./components/views/LoansView";
-import { CardsView } from "./components/views/CardsView";
-import { CalendarView } from "./components/views/CalendarView";
-import { ReportsView } from "./components/views/ReportsView";
-import { BackupView } from "./components/views/BackupView";
-import { SettingsView } from "./components/views/SettingsView";
-
-import { ConfirmModal, ToastLayer } from "./components/ui/SharedComponents";
-
-type ToastTone = "success" | "danger" | "warning" | "info";
-
-interface AppToast {
-  id: string;
-  tone: ToastTone;
-  title: string;
-  message: string;
-}
-export default function App() {
-
-  const [user, setUser] = useState<User | null>(null);
+﻿  const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState("");
   const [masterPin, setMasterPin] = useState("");
@@ -74,7 +21,7 @@ export default function App() {
     () => ({
       language: languageOption.code,
       locale: languageOption.locale,
-      t: (key: string) => translate(languageOption.code, key as any),
+      t: (key: TranslationKey) => translate(languageOption.code, key),
     }),
     [languageOption.code, languageOption.locale],
   );
@@ -533,9 +480,4 @@ export default function App() {
     </LanguageContext.Provider>
   );
 }
-
-
-
-
-
 
