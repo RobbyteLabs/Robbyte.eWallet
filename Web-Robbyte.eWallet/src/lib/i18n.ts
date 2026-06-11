@@ -1,4 +1,4 @@
-import type { Language } from "../types";
+﻿import type { Language } from "../types";
 
 export const languageOptions: Array<{
   code: Language;
@@ -23,6 +23,7 @@ const es = {
   "nav.calendar": "Calendario",
   "nav.reports": "Reportes",
   "nav.backup": "Backups",
+  "nav.incomes": "Ingresos",
   "nav.settings": "Ajustes",
   "auth.preparing": "Preparando autenticacion",
   "auth.loginWithGoogle": "Entrar con Google",
@@ -212,7 +213,7 @@ const es = {
     "Esto elimina la copia cifrada de este navegador. No borra Firestore.",
   "backup.clearConfirm": "Limpiar cache",
   "settings.title": "Ajustes",
-  "settings.subtitle": "Preferencias, ingreso base e ingresos adicionales.",
+  "settings.subtitle": "Preferencias y ajustes del sistema.",
   "settings.preferences": "Preferencias",
   "settings.language": "Idioma",
   "settings.mainCurrency": "Moneda principal",
@@ -236,6 +237,19 @@ const es = {
   "delete.withName": "Se eliminara",
   "source.expense": "gasto",
   "source.loan": "prestamo",
+  "incomes.title": "Ingresos",
+  "incomes.subtitle": "Registro y gestión de tus ingresos",
+  "incomes.source": "Fuente",
+  "incomes.sourcePlaceholder": "Freelance, bono, renta",
+  "incomes.category": "Categoría",
+  "incomes.date": "Fecha",
+  "incomes.notes": "Notas",
+  "incomes.notesPlaceholder": "Detalle opcional",
+  "incomes.add": "Agregar ingreso",
+  "incomes.incomes": "Ingresos",
+  "incomes.noIncomes": "Sin ingresos registrados.",
+  "incomes.deleteTitle": "Eliminar ingreso",
+  "incomes.deleteMessage": "Se eliminará",
   "source.card": "tarjeta",
 };
 
@@ -248,6 +262,7 @@ const en: Record<keyof typeof es, string> = {
   "nav.calendar": "Calendar",
   "nav.reports": "Reports",
   "nav.backup": "Backups",
+  "nav.incomes": "Income",
   "nav.settings": "Settings",
   "auth.preparing": "Preparing authentication",
   "auth.loginWithGoogle": "Sign in with Google",
@@ -434,7 +449,7 @@ const en: Record<keyof typeof es, string> = {
     "This removes the encrypted copy from this browser. It does not delete Firestore.",
   "backup.clearConfirm": "Clear cache",
   "settings.title": "Settings",
-  "settings.subtitle": "Preferences, base income, and additional income.",
+  "settings.subtitle": "Preferences and system settings.",
   "settings.preferences": "Preferences",
   "settings.language": "Language",
   "settings.mainCurrency": "Main currency",
@@ -458,6 +473,19 @@ const en: Record<keyof typeof es, string> = {
   "delete.withName": "This will delete",
   "source.expense": "expense",
   "source.loan": "loan",
+  "incomes.title": "Income",
+  "incomes.subtitle": "Record and manage your income streams",
+  "incomes.source": "Source",
+  "incomes.sourcePlaceholder": "Freelance, bonus, rent",
+  "incomes.category": "Category",
+  "incomes.date": "Date",
+  "incomes.notes": "Notes",
+  "incomes.notesPlaceholder": "Optional detail",
+  "incomes.add": "Add income",
+  "incomes.incomes": "Income",
+  "incomes.noIncomes": "No income recorded.",
+  "incomes.deleteTitle": "Delete income",
+  "incomes.deleteMessage": "This will delete",
   "source.card": "card",
 };
 
@@ -470,6 +498,7 @@ const pt: Record<keyof typeof es, string> = {
   "nav.calendar": "Calendario",
   "nav.reports": "Relatorios",
   "nav.backup": "Backups",
+  "nav.incomes": "Rendas",
   "nav.settings": "Ajustes",
   "auth.preparing": "Preparando autenticacao",
   "auth.loginWithGoogle": "Entrar com Google",
@@ -656,7 +685,7 @@ const pt: Record<keyof typeof es, string> = {
     "Isto remove a copia criptografada deste navegador. Nao apaga o Firestore.",
   "backup.clearConfirm": "Limpar cache",
   "settings.title": "Ajustes",
-  "settings.subtitle": "Preferencias, renda base e rendas adicionais.",
+  "settings.subtitle": "Preferencias e ajustes do sistema.",
   "settings.preferences": "Preferencias",
   "settings.language": "Idioma",
   "settings.mainCurrency": "Moeda principal",
@@ -680,6 +709,19 @@ const pt: Record<keyof typeof es, string> = {
   "delete.withName": "Sera excluido",
   "source.expense": "despesa",
   "source.loan": "emprestimo",
+  "incomes.title": "Rendas",
+  "incomes.subtitle": "Registro e gestão das suas fontes de rendimento",
+  "incomes.source": "Fonte",
+  "incomes.sourcePlaceholder": "Freelance, bônus, aluguel",
+  "incomes.category": "Categoria",
+  "incomes.date": "Data",
+  "incomes.notes": "Notas",
+  "incomes.notesPlaceholder": "Detalhe opcional",
+  "incomes.add": "Adicionar renda",
+  "incomes.incomes": "Rendas",
+  "incomes.noIncomes": "Sem rendas registradas.",
+  "incomes.deleteTitle": "Excluir renda",
+  "incomes.deleteMessage": "Sera excluido",
   "source.card": "cartao",
 };
 
@@ -753,3 +795,10 @@ export const localizeDataLabel = (
   if (!value) return "";
   return dataLabelTranslations[value]?.[language || "es"] || value;
 };
+
+
+
+
+
+
+

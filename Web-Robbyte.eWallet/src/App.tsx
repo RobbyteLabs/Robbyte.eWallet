@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Alert, Button, Container, Form } from "react-bootstrap";
 import type { User } from "firebase/auth";
@@ -33,6 +33,7 @@ import { Header } from "./components/layout/Header";
 import { Dashboard } from "./components/views/Dashboard";
 import { ExpensesView } from "./components/views/ExpensesView";
 import { LoansView } from "./components/views/LoansView";
+import { IncomesView } from "./components/views/IncomesView";
 import { CardsView } from "./components/views/CardsView";
 import { CalendarView } from "./components/views/CalendarView";
 import { ReportsView } from "./components/views/ReportsView";
@@ -458,6 +459,13 @@ export default function App() {
               )}
               {view === "expenses" && (
                 <ExpensesView
+                  data={data}
+                  updateData={updateData}
+                  confirm={setConfirmRequest}
+                />
+              )}
+              {view === "ingresos" && (
+                <IncomesView
                   data={data}
                   updateData={updateData}
                   confirm={setConfirmRequest}

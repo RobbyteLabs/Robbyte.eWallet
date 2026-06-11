@@ -124,7 +124,7 @@ export type AppView =
   | "calendar"
   | "reports"
   | "backup"
-  | "settings";
+    | "ingresos"
 
 
 export interface ConfirmOptions {

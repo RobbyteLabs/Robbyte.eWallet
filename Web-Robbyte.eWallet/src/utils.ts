@@ -1,10 +1,11 @@
-﻿import type { EncryptedAppBlocks } from "./lib/storage";
+import type { EncryptedAppBlocks } from "./lib/storage";
 import type { AppView, SyncState, TranslationKey, ExpensePriority, PaymentDue } from './types';
 import { orderedBlocks } from './lib/crypto';
 
 export const views: Array<{ id: AppView; labelKey: TranslationKey; icon: string }> = [
   { id: "dashboard", labelKey: "nav.dashboard", icon: "speedometer2" },
   { id: "expenses", labelKey: "nav.expenses", icon: "wallet2" },
+  { id: "ingresos", labelKey: "nav.incomes", icon: "cash-stack" },
   { id: "loans", labelKey: "nav.loans", icon: "bank" },
   { id: "cards", labelKey: "nav.cards", icon: "credit-card" },
   { id: "calendar", labelKey: "nav.calendar", icon: "calendar-event" },
