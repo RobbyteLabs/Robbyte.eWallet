@@ -29,6 +29,7 @@ import { CenteredStatus } from "./components/layout/CenteredStatus";
 import { DesktopSidebar } from "./components/layout/DesktopSidebar";
 import { MobileNavbar } from "./components/layout/MobileNavbar";
 import { Header } from "./components/layout/Header";
+import { FloatingActions } from "./components/layout/FloatingActions";
 
 import { Dashboard } from "./components/views/Dashboard";
 import { ExpensesView } from "./components/views/ExpensesView";
@@ -530,6 +531,11 @@ export default function App() {
             </Container>
           </div>
         </div>
+        <FloatingActions
+          sync={sync}
+          onSync={() => persistData(data)}
+          updateData={updateData}
+        />
         </MoneyFormatContext.Provider>
         <ConfirmModal
           request={confirmRequest}

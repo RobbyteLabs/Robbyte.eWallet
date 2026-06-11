@@ -119,12 +119,13 @@ export interface SyncState {
 export type AppView =
   | "dashboard"
   | "expenses"
+  | "ingresos"
   | "loans"
   | "cards"
   | "calendar"
   | "reports"
   | "backup"
-    | "ingresos"
+  | "settings";
 
 
 export interface ConfirmOptions {

@@ -147,7 +147,7 @@ label {
 
 .app-content {
   max-width: 1480px;
-  padding: 1.5rem;
+  padding: 1.5rem 1.5rem 6rem;
 }
 
 .app-mobile-nav {
@@ -301,6 +301,29 @@ label {
   line-height: 1.35;
 }
 
+.floating-actions {
+  position: fixed;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  z-index: 1035;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.floating-action-btn {
+  width: 3.25rem;
+  height: 3.25rem;
+  padding: 0;
+  border-radius: 999px;
+  box-shadow: 0 0.85rem 1.75rem rgba(15, 23, 42, 0.22);
+  font-size: 1.25rem;
+}
+
+.floating-action-btn .spinner-border {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
 .stat-card {
   border: 0;
 }
@@ -382,7 +405,7 @@ label {
   }
 
   .app-content {
-    padding: 1rem;
+    padding: 1rem 1rem 6rem;
   }
 }
 
@@ -401,7 +424,19 @@ label {
   }
 
   .app-content {
-    padding: 0.75rem;
+    padding: 0.75rem 0.75rem 5.75rem;
+  }
+
+  .floating-actions {
+    right: max(0.75rem, env(safe-area-inset-right));
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    gap: 0.625rem;
+  }
+
+  .floating-action-btn {
+    width: 2.875rem;
+    height: 2.875rem;
+    font-size: 1.1rem;
   }
 
   .navbar-brand {
